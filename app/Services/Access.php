@@ -14,13 +14,13 @@ class Access
     public function employee(User $user): ?\stdClass
     {
         return DB::table('employees')->join('positions', 'positions.id', '=', 'employees.position_id')
-            ->select('employees.*', 'positions.department_id')->where('user_id', $user->id)->first();
+            ->select('employees.*', DB::raw('COALESCE(employees.department_id, positions.department_id) as department_id'))->whereNull('employees.deleted_at')->where('user_id', $user->id)->first();
     }
 
     /** @return list<string> */
     public function grants(User $user, string $permission): array
     {
-        if (! $user->active) {
+        if (! $user->active || $user->deleted_at !== null) {
             return [];
         }
         if ($user->is_superadmin) {
@@ -42,14 +42,14 @@ class Access
         }
         $me = $this->employee($user);
         $employee = DB::table('employees')->join('positions', 'positions.id', '=', 'employees.position_id')
-            ->select('employees.*', 'positions.department_id')->where('employees.id', $employeeId)->first();
+            ->select('employees.*', DB::raw('COALESCE(employees.department_id, positions.department_id) as department_id'))->whereNull('employees.deleted_at')->where('employees.id', $employeeId)->first();
         if (! $me || ! $employee) {
             return false;
         }
 
         return (in_array('self', $scopes, true) && $me->id === $employee->id)
             || (in_array('reports', $scopes, true) && $employee->supervisor_id === $me->id)
-            || (in_array('department', $scopes, true) && $employee->department_id === $me->department_id);
+            || (in_array('department', $scopes, true) && $me->department_id !== null && $employee->department_id === $me->department_id);
     }
 
     public function authorize(User $user, string $permission, ?int $employeeId = null): void
@@ -60,7 +60,7 @@ class Access
     /** @return array<int, int> */
     public function ids(User $user, string $permission): array
     {
-        return DB::table('employees')->pluck('id')->filter(fn ($id) => $this->allows($user, $permission, $id))->all();
+        return DB::table('employees')->whereNull('deleted_at')->pluck('id')->filter(fn ($id) => $this->allows($user, $permission, $id))->all();
     }
 
     public function team(User $user, string $permission, int $departmentId): bool

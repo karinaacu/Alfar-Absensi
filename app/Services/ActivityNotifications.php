@@ -42,6 +42,7 @@ class ActivityNotifications
             'periods.save','period-status.save' => 'Periode penilaian berhasil diperbarui',
             'metrics.save' => 'Indikator kinerja berhasil disimpan', 'targets.save' => 'Target kinerja berhasil disimpan',
             'devices.save' => 'Perangkat absensi berhasil disimpan', 'device-mappings.save' => 'Identitas perangkat berhasil dihubungkan',
+            'schedules.delete' => 'Jadwal kerja dihapus', 'accounts.delete' => 'Akun karyawan dihapus', 'positions.delete' => 'Jabatan dihapus', 'employees.delete' => 'Data karyawan dihapus',
             'password.change' => 'Password berhasil diganti', default => 'Aktivitas berhasil disimpan',
         };
         $body = $title.'.';
@@ -88,7 +89,7 @@ class ActivityNotifications
                 $recipients[] = DB::table('employees')->where('id', $target->employee_id)->value('user_id');
             } elseif ($target) {
                 $period = DB::table('periods')->where('id', $target->period_id)->first();
-                $team = DB::table('employees')->join('positions', 'positions.id', '=', 'employees.position_id')->where('positions.department_id', $target->department_id);
+                $team = DB::table('employees')->join('positions', 'positions.id', '=', 'employees.position_id')->whereRaw('COALESCE(employees.department_id, positions.department_id) = ?', [$target->department_id])->whereNull('employees.deleted_at');
                 if ($target->shift_id && $period) {
                     $team->whereIn('employees.id', DB::table('schedules')->select('employee_id')->where('shift_id', $target->shift_id)->whereBetween('work_date', [$period->starts_on, $period->ends_on]));
                 }

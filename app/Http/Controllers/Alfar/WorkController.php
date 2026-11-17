@@ -26,7 +26,7 @@ class WorkController extends Controller
         // An employee can always see their own input workspace; published reports require reports.read.
         $workspaceIds = array_unique([...$reportIds, ...$attendanceIds, ...$a->ids($user, 'kpi.submit'), ...$a->ids($user, 'kpi.validate'), ...$a->ids($user, 'reviews.publish'), ...$a->ids($user, 'attendance.approve'), ...($me ? [$me->id] : [])]);
         $admin = $a->allows($user, 'organization.manage') || $a->allows($user, 'accounts.manage');
-        $employees = DB::table('employees')->join('users', 'users.id', '=', 'employees.user_id')->join('positions', 'positions.id', '=', 'employees.position_id')->join('departments', 'departments.id', '=', 'positions.department_id')->select('employees.*', 'users.name', 'users.active', 'positions.name as position', 'positions.department_id', 'departments.name as department')->when(! $admin, fn ($q) => $q->whereIn('employees.id', $workspaceIds))->get();
+        $employees = DB::table('employees')->join('users', 'users.id', '=', 'employees.user_id')->join('positions', 'positions.id', '=', 'employees.position_id')->join('departments', 'departments.id', '=', DB::raw('COALESCE(employees.department_id, positions.department_id)'))->select('employees.*', 'users.name', 'users.active', 'positions.name as position', DB::raw('COALESCE(employees.department_id, positions.department_id) as department_id'), 'departments.name as department')->whereNull('employees.deleted_at')->whereNull('users.deleted_at')->when(! $admin, fn ($q) => $q->whereIn('employees.id', $workspaceIds))->get();
         $periods = DB::table('periods')->orderByDesc('starts_on')->get();
         $periodId = (int) ($r->query('period') ?: $periods->first()?->id);
         $period = DB::table('periods')->where('id', (int) ($periodId))->first();
@@ -72,9 +72,9 @@ class WorkController extends Controller
 
         return Inertia::render('alfar/Workspace', [
             'permissions' => $permissions, 'me' => $me, 'employees' => $employees, 'periods' => $periods, 'periodId' => $periodId, 'reports' => $reports, 'targets' => $targets,
-            'departments' => $master ? DB::table('departments')->get() : [], 'positions' => $master ? DB::table('positions')->get() : [],
+            'departments' => $master ? DB::table('departments')->get() : [], 'positions' => $master ? DB::table('positions')->whereNull('deleted_at')->get() : [],
             'shifts' => ($master || $a->allows($user, 'reports.read')) ? DB::table('shifts')->get() : [], 'metrics' => $a->allows($user, 'kpi.manage') ? DB::table('metrics')->get() : [],
-            'accounts' => $a->allows($user, 'accounts.manage') || $a->allows($user, 'roles.manage') || $a->allows($user, 'organization.manage') ? DB::table('users')->select('id', 'name', 'email', 'active')->get() : [],
+            'accounts' => $a->allows($user, 'accounts.manage') || $a->allows($user, 'roles.manage') || $a->allows($user, 'organization.manage') ? DB::table('users')->whereNull('deleted_at')->select('id', 'name', 'email', 'active')->get() : [],
             'roles' => $a->allows($user, 'roles.manage') ? DB::table('roles')->get()->map(fn ($x) => [...(array) $x, 'grants' => DB::table('role_grants')->where('role_id', $x->id)->get()]) : [],
             'roleAssignments' => $a->allows($user, 'roles.manage') ? DB::table('role_user')->get() : [],
             'permissionCatalog' => Access::PERMISSIONS, 'scopeCatalog' => Access::SCOPES,

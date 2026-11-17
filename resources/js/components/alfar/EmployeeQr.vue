@@ -2,7 +2,7 @@
 import QRCode from 'qrcode';
 import { toast } from 'vue-sonner';
 import { onBeforeUnmount, onMounted, ref } from 'vue';
-const props = defineProps<{ name: string; nik: string; allowWfo: boolean }>();
+const props = defineProps<{ name: string; allowWfo: boolean }>();
 const image = ref('');
 const lastAttendance = ref<{
     work_date: string;
@@ -144,7 +144,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="personal-qr-body">
             <h3>{{ name }}</h3>
-            <p>NIK {{ nik }}</p>
+            <p>QR absensi pribadi</p>
             <div v-if="lastAttendance" class="last-attendance" role="status">
                 <strong
                     >Kehadiran terakhir · {{ lastAttendance.work_date }}</strong

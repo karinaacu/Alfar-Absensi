@@ -9,7 +9,7 @@ class Performance
     /** @return array<string, mixed> */
     public function report(int $employeeId, int $periodId): array
     {
-        $employee = DB::table('employees')->join('positions', 'positions.id', '=', 'employees.position_id')->select('employees.*', 'positions.department_id')->where('employees.id', $employeeId)->first();
+        $employee = DB::table('employees')->join('positions', 'positions.id', '=', 'employees.position_id')->select('employees.*', DB::raw('COALESCE(employees.department_id, positions.department_id) as department_id'))->where('employees.id', $employeeId)->first();
         abort_unless($employee !== null, 404);
         $period = DB::table('periods')->where('id', (int) ($periodId))->first();
         abort_unless($period !== null, 404);

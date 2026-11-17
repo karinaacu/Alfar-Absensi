@@ -38,6 +38,9 @@ class ManageController extends Controller
                 $request->validate(['id' => ['required', 'integer', Rule::exists($entity === 'accounts' ? 'users' : $entity, 'id')]]);
                 $id = (int) $request->id;
                 $before = DB::table($entity === 'accounts' ? 'users' : $entity)->where('id', $id)->lockForUpdate()->first();
+                if (in_array($entity, ['accounts', 'positions']) && $before->deleted_at !== null) {
+                    abort(404);
+                }
                 if ($entity === 'periods' && $before->status !== 'planning') {
                     throw ValidationException::withMessages(['id' => 'Periode aktif tidak dapat diubah.']);
                 }
@@ -53,16 +56,19 @@ class ManageController extends Controller
                     $data = $request->validate(['name' => ['required', 'string', 'max:150', Rule::unique('departments')->ignore($id)]]);
                     break;
                 case 'positions':
-                    $data = $request->validate(['name' => 'required|string|max:150', 'department_id' => 'required|exists:departments,id']);
-                    if ($id && $before->department_id != $data['department_id'] && (DB::table('employees')->where('position_id', $id)->exists() || DB::table('metrics')->where('position_id', $id)->exists())) {
-                        throw ValidationException::withMessages(['department_id' => 'Jabatan yang sudah digunakan tidak dapat dipindah divisi. Buat jabatan baru dan ubah penempatan karyawan.']);
-                    }
+                    $data = $request->validate(['name' => ['required', 'string', 'max:150', Rule::unique('positions')->whereNull('deleted_at')->ignore($id)]], ['name.unique' => 'Nama jabatan sudah digunakan.']);
                     break;
                 case 'shifts':
-                    $data = $request->validate(['name' => ['required', 'string', 'max:150', Rule::unique('shifts')->ignore($id)], 'starts_at' => 'required|date_format:H:i', 'ends_at' => 'required|date_format:H:i|different:starts_at', 'tolerance_minutes' => 'required|integer|min:0|max:180']);
+                    $data = $request->validate(['name' => ['required', 'string', 'max:150', Rule::unique('shifts')->ignore($id)], 'starts_at' => 'required|date_format:H:i', 'ends_at' => 'required|date_format:H:i|different:starts_at', 'tolerance_minutes' => 'required|integer|min:0|max:180', 'checkin_early_minutes' => 'sometimes|integer|min:0|max:360', 'checkout_after_minutes' => 'sometimes|integer|min:1|max:1440', 'checkout_grace_minutes' => 'sometimes|integer|min:0|max:720']);
                     break;
                 case 'accounts':
-                    $data = $request->validate(['name' => 'required|string|max:150', 'email' => ['required', 'email', 'regex:/^[^@\s]+@alfar\.id$/i', Rule::unique('users')->ignore($id)], 'active' => 'sometimes|boolean', 'password' => [$id ? 'nullable' : 'required', 'confirmed', Password::min(12)->letters()->numbers()]]);
+                    $data = $request->validate(['name' => 'required|string|max:150', 'email' => ['required', 'email', 'regex:/^[^@\s]+@alfar\.id$/i', Rule::unique('users')->whereNull('deleted_at')->ignore($id)], 'active' => 'sometimes|boolean', 'password' => [$id ? 'nullable' : 'required', 'confirmed', Password::min(12)->letters()->numbers()]]);
+                    if (! $id) {
+                        $archived = User::where('email', $data['email'])->whereNotNull('deleted_at')->first();
+                        if ($archived) {
+                            $id = $archived->id;
+                        }
+                    }
                     $user = $id ? User::findOrFail($id) : new User;
                     if ($user->is_superadmin && ($data['email'] !== $user->email || ! ($data['active'] ?? true))) {
                         throw ValidationException::withMessages(['email' => 'Akun bootstrap superadmin tidak boleh dinonaktifkan atau diganti email.']);
@@ -72,43 +78,57 @@ class ManageController extends Controller
                     if (! empty($data['password'])) {
                         $user->forceFill(['password' => $data['password'], 'must_change_password' => true]);
                     }
-                    $user->forceFill(['active' => $data['active'] ?? true, 'email_verified_at' => now()])->save();
+                    $user->forceFill(['active' => $data['active'] ?? true, 'email_verified_at' => now(), 'deleted_at' => null])->save();
                     Access::audit($request->user()->id, 'accounts.save', 'user:'.$user->id, $safeBefore, ['name' => $user->name, 'email' => $user->email, 'active' => $user->active]);
 
                     return back()->with('success', 'Akun disimpan. Password sementara wajib diganti saat login.');
                 case 'employees':
-                    $data = $request->validate(['id' => 'nullable|exists:employees,id', 'user_id' => 'required|exists:users,id', 'nik' => 'required|string|max:50', 'position_id' => 'required|exists:positions,id', 'supervisor_id' => 'nullable|exists:employees,id', 'allow_wfh' => 'required|boolean', 'allow_wfo' => 'required|boolean', 'starts_on' => 'required|date']);
-                    $id = $data['id'] ?? null;
+                    $data = $request->validate(['id' => 'nullable|integer|exists:employees,id', 'user_id' => ['required', Rule::exists('users', 'id')->whereNull('deleted_at')], 'department_id' => 'required|exists:departments,id', 'position_id' => 'required|exists:positions,id', 'supervisor_id' => ['nullable', Rule::exists('employees', 'id')->whereNull('deleted_at')], 'allow_wfh' => 'required|boolean', 'allow_wfo' => 'required|boolean', 'starts_on' => 'required|date_format:Y-m-d']);
+                    $id = isset($data['id']) ? (int) $data['id'] : null;
                     unset($data['id']);
-                    validator($data, ['user_id' => Rule::unique('employees')->ignore($id), 'nik' => Rule::unique('employees')->ignore($id)])->validate();
+                    if (! $id) {
+                        $archived = DB::table('employees')->where('user_id', $data['user_id'])->whereNotNull('deleted_at')->lockForUpdate()->first();
+                        if ($archived) {
+                            $id = $archived->id;
+                        }
+                    }
+                    validator($data, ['user_id' => Rule::unique('employees')->ignore($id)])->validate();
+                    $before = $id ? DB::table('employees')->where('id', $id)->lockForUpdate()->first() : null;
+                    if (DB::table('positions')->where('id', $data['position_id'])->whereNotNull('deleted_at')->exists() && (! $before || $before->position_id != $data['position_id'])) {
+                        throw ValidationException::withMessages(['position_id' => 'Pilih jabatan aktif.']);
+                    }
                     $start = $data['starts_on'];
                     unset($data['starts_on']);
-                    if ($id) {
-                        $before = DB::table('employees')->where('id', $id)->lockForUpdate()->first();
-                        if ($before->user_id != $data['user_id']) {
-                            throw ValidationException::withMessages(['user_id' => 'Akun karyawan tidak dapat diganti.']);
-                        }
-                        $seen = [$id];
-                        $next = $data['supervisor_id'] ?? null;
-                        while ($next) {
-                            if (in_array($next, $seen)) {
-                                throw ValidationException::withMessages(['supervisor_id' => 'Relasi supervisor membentuk siklus.']);
-                            } $seen[] = $next;
-                            $next = DB::table('employees')->where('id', $next)->value('supervisor_id');
-                        }
-                        $previous = DB::table('placements')->where('employee_id', $id)->whereNull('ends_on')->first();
-                        if ($previous && $start <= $previous->starts_on) {
-                            throw ValidationException::withMessages(['starts_on' => 'Tanggal penempatan baru harus setelah penempatan sebelumnya.']);
-                        }
-                        DB::table('placements')->where('employee_id', $id)->whereNull('ends_on')->update(['ends_on' => CarbonImmutable::parse($start)->subDay()->toDateString(), 'updated_at' => now()]);
+                    if ($before && $before->user_id != $data['user_id']) {
+                        throw ValidationException::withMessages(['user_id' => 'Akun karyawan tidak dapat diganti.']);
+                    }
+                    $seen = $id ? [$id] : [];
+                    $next = $data['supervisor_id'] ?? null;
+                    while ($next) {
+                        if (in_array($next, $seen)) {
+                            throw ValidationException::withMessages(['supervisor_id' => 'Relasi atasan membentuk siklus.']);
+                        }$seen[] = $next;
+                        $next = DB::table('employees')->where('id', $next)->value('supervisor_id');
+                    }
+                    $previous = $id ? DB::table('placements')->where('employee_id', $id)->whereNull('ends_on')->first() : null;
+                    $changed = ! $before || $before->deleted_at !== null || (int) $before->position_id !== (int) $data['position_id'] || (int) ($before->department_id ?? 0) !== (int) $data['department_id'] || ($before->supervisor_id ?? null) != ($data['supervisor_id'] ?? null);
+                    if ($changed && $previous && $start <= $previous->starts_on) {
+                        throw ValidationException::withMessages(['starts_on' => 'Perubahan penempatan harus dimulai setelah penempatan sebelumnya.']);
+                    }
+                    $data['deleted_at'] = null;
+                    if ($before) {
                         DB::table('employees')->where('id', $id)->update([...$data, 'updated_at' => now()]);
                     } else {
-                        $id = DB::table('employees')->insertGetId([...$data, 'created_at' => now(), 'updated_at' => now()]);
+                        $id = DB::table('employees')->insertGetId([...$data, 'nik' => 'EMP-'.Str::ulid(), 'created_at' => now(), 'updated_at' => now()]);
                     }
-                    DB::table('placements')->insert(['employee_id' => $id, 'position_id' => $data['position_id'], 'supervisor_id' => $data['supervisor_id'] ?? null, 'starts_on' => $start, 'created_at' => now(), 'updated_at' => now()]);
+                    if ($changed) {
+                        DB::table('placements')->where('employee_id', $id)->whereNull('ends_on')->update(['ends_on' => CarbonImmutable::parse($start)->subDay()->toDateString(), 'updated_at' => now()]);
+                        DB::table('placements')->insert(['employee_id' => $id, 'department_id' => $data['department_id'], 'position_id' => $data['position_id'], 'supervisor_id' => $data['supervisor_id'] ?? null, 'starts_on' => $start, 'created_at' => now(), 'updated_at' => now()]);
+                    }
                     break;
                 case 'schedules':
                     $data = $request->validate(['employee_id' => 'required|exists:employees,id', 'shift_id' => 'required|exists:shifts,id', 'work_date' => 'required|date_format:Y-m-d']);
+                    abort_unless(DB::table('employees')->where('id', $data['employee_id'])->whereNull('deleted_at')->lockForUpdate()->first() !== null, 422, 'Karyawan tidak aktif.');
                     if (DB::table('attendances')->where('employee_id', $data['employee_id'])->where('work_date', $data['work_date'])->exists()) {
                         throw ValidationException::withMessages(['work_date' => 'Jadwal dengan absensi tidak boleh ditimpa.']);
                     }
@@ -118,7 +138,7 @@ class ManageController extends Controller
                     if ($out->lte($in)) {
                         $out = $out->addDay();
                     }
-                    DB::table('schedules')->updateOrInsert(['employee_id' => $data['employee_id'], 'work_date' => $data['work_date']], [...$data, 'scheduled_in' => $in, 'scheduled_out' => $out, 'tolerance_minutes' => $shift->tolerance_minutes, 'created_at' => now(), 'updated_at' => now()]);
+                    DB::table('schedules')->updateOrInsert(['employee_id' => $data['employee_id'], 'work_date' => $data['work_date']], [...$data, 'scheduled_in' => $in, 'scheduled_out' => $out, 'tolerance_minutes' => $shift->tolerance_minutes, 'checkin_early_minutes' => $shift->checkin_early_minutes, 'checkout_after_minutes' => $shift->checkout_after_minutes, 'checkout_grace_minutes' => $shift->checkout_grace_minutes, 'created_at' => now(), 'updated_at' => now()]);
                     break;
                 case 'roles':
                     $data = $request->validate(['id' => 'nullable|exists:roles,id', 'name' => 'required|string|max:150', 'grants' => 'present|array', 'grants.*.permission' => ['required', Rule::in(Access::PERMISSIONS), 'distinct'], 'grants.*.scope' => ['required', Rule::in(Access::SCOPES)]], ['name.required' => 'Nama peran wajib diisi.', 'name.max' => 'Nama peran maksimal 150 karakter.', 'name.string' => 'Nama peran harus berupa teks.', 'id.exists' => 'Peran tidak ditemukan.', 'grants.present' => 'Pilih hak akses untuk peran ini.', 'grants.array' => 'Pilihan hak akses tidak valid.', 'grants.*.permission.in' => 'Hak akses yang dipilih tidak tersedia.', 'grants.*.permission.distinct' => 'Hak akses yang sama hanya boleh dipilih satu kali.', 'grants.*.permission.required' => 'Pilih hak akses yang ingin diberikan.', 'grants.*.scope.in' => 'Cakupan akses tidak tersedia.', 'grants.*.scope.required' => 'Pilih cakupan akses.']);
@@ -189,7 +209,6 @@ class ManageController extends Controller
                         throw ValidationException::withMessages(['period_id' => 'Target hanya dapat ditetapkan sebelum periode aktif.']);
                     }
                     $metric = DB::table('metrics')->where('id', (int) ($data['metric_id']))->first();
-                    $position = DB::table('positions')->where('id', (int) ($metric->position_id))->first();
                     if ($metric->level === 'individual') {
                         $e = DB::table('employees')->where('id', (int) ($data['employee_id'] ?? 0))->first();
                         if (! $e || $e->position_id !== $metric->position_id || ! empty($data['department_id']) || ! empty($data['shift_id'])) {
@@ -198,8 +217,8 @@ class ManageController extends Controller
                         if (DB::table('targets')->where('period_id', $p->id)->where('employee_id', $e->id)->when($id, fn ($q) => $q->where('id', '!=', $id))->sum('weight') + $data['weight'] > 100.001) {
                             throw ValidationException::withMessages(['weight' => 'Total bobot melebihi 100%.']);
                         }
-                    } elseif (! empty($data['employee_id']) || ($data['department_id'] ?? null) != $position->department_id) {
-                        throw ValidationException::withMessages(['department_id' => 'KPI tim wajib menggunakan departemen jabatan, tanpa karyawan individu.']);
+                    } elseif (! empty($data['employee_id']) || empty($data['department_id'])) {
+                        throw ValidationException::withMessages(['department_id' => 'KPI tim wajib memilih divisi, tanpa karyawan individu.']);
                     }
                     $duplicate = DB::table('targets')->where('period_id', $p->id)->where('metric_id', $data['metric_id'])
                         ->where('employee_id', $data['employee_id'] ?? null)->where('department_id', $data['department_id'] ?? null)->where('shift_id', $data['shift_id'] ?? null)->when($id, fn ($q) => $q->where('id', '!=', $id))->exists();

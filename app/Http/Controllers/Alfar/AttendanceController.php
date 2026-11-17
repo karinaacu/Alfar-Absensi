@@ -38,12 +38,12 @@ class AttendanceController extends Controller
     public function scan(Request $r, Access $a, Attendance $attendance): JsonResponse
     {
         $a->authorize($r->user(), 'attendance.scan');
-        $data = $r->validate(['token' => 'required|string|size:64', 'event' => 'required|in:in,out', 'device_id' => 'required|integer|exists:devices,id', 'work_date' => 'nullable|date_format:Y-m-d', 'input_method' => 'required|in:laptop_camera,usb_scanner,phone_camera']);
+        $data = $r->validate(['token' => 'required|string|size:64', 'device_id' => 'nullable|integer|exists:devices,id', 'work_date' => 'nullable|date_format:Y-m-d', 'input_method' => 'required|in:laptop_camera,usb_scanner,phone_camera']);
 
         return DB::transaction(function () use ($r, $a, $attendance, $data) {
-            $device = DB::table('devices')->where('id', $data['device_id'])->lockForUpdate()->first();
             $expectedType = $data['input_method'] === 'phone_camera' ? 'phone_camera' : 'scanner';
-            abort_unless($device && $device->active && $device->type === $expectedType, 422, 'Pilih perangkat pemindai aktif yang sesuai dengan cara pemindaian.');
+            $device = DB::table('devices')->where('active', true)->where('type', $expectedType)->when(! empty($data['device_id']), fn ($q) => $q->where('id', $data['device_id']))->orderBy('id')->first();
+            abort_unless($device && $device->active && $device->type === $expectedType, 422, 'Belum ada perangkat pemindai aktif yang sesuai. Hubungi pengelola.');
             // Read the immutable owner first; lock employee before token to match issuance order.
             $owner = DB::table('qr_tokens')->where('token_hash', hash('sha256', $data['token']))->first();
             if (! $owner?->employee_id) {
@@ -60,7 +60,9 @@ class AttendanceController extends Controller
             if (DB::table('qr_uses')->where('qr_token_id', $qr->id)->exists()) {
                 throw ValidationException::withMessages(['token' => 'QR ini sudah digunakan.']);
             }
-            $record = $attendance->record($employee->id, $data['event'], 'wfo', $data['input_method'], CarbonImmutable::now(), $data['work_date'] ?? null);
+            $result = $attendance->automaticRecord($employee->id, $data['input_method'], CarbonImmutable::now());
+            $record = $result['record'];
+            $data['event'] = $result['event'];
             DB::table('qr_uses')->insert(['qr_token_id' => $qr->id, 'employee_id' => $employee->id, 'event' => $data['event']]);
             Access::audit($r->user()->id, 'qr.scan', 'attendance:'.$record->id, null, ['device_id' => $device->id, 'employee_id' => $employee->id, 'event' => $data['event'], 'input_method' => $data['input_method']]);
 
@@ -137,14 +139,17 @@ class AttendanceController extends Controller
         $reader = new Reader;
         $reader->open($r->file('file')->getRealPath());
         $rows = [];
+        $identity = 'nik';
         try {
             foreach ($reader->getSheetIterator() as $sheet) {
                 foreach ($sheet->getRowIterator() as $index => $row) {
                     $values = array_map(fn ($v) => $v instanceof \DateTimeInterface ? $v->format('Y-m-d H:i:s') : (is_scalar($v) || $v === null ? trim((string) $v) : ''), $row->toArray());
                     if ($index === 1) {
-                        if ($values !== ['nik', 'work_date', 'clock_in', 'clock_out', 'mode']) {
-                            throw ValidationException::withMessages(['file' => 'Header wajib: nik, work_date, clock_in, clock_out, mode (5 kolom). Gunakan sel teks.']);
+                        if (! in_array($values, [['email', 'work_date', 'clock_in', 'clock_out', 'mode'], ['nik', 'work_date', 'clock_in', 'clock_out', 'mode']], true)) {
+                            throw ValidationException::withMessages(['file' => 'Header wajib: email, work_date, clock_in, clock_out, mode (5 kolom). Template NIK lama tetap diterima. Gunakan sel teks.']);
                         }
+
+                        $identity = $values[0];
 
                         continue;
                     }
@@ -154,8 +159,8 @@ class AttendanceController extends Controller
                     if (count($values) !== 5 || count($rows) >= 2000) {
                         throw ValidationException::withMessages(['file' => 'Maksimal 2000 baris, masing-masing 5 kolom.']);
                     }
-                    $d = array_combine(['nik', 'work_date', 'clock_in', 'clock_out', 'mode'], $values);
-                    validator($d, ['nik' => 'required|string', 'work_date' => 'required|date_format:Y-m-d', 'clock_in' => 'required|date_format:Y-m-d H:i:s', 'clock_out' => 'nullable|date_format:Y-m-d H:i:s|after:clock_in', 'mode' => 'required|in:wfo,wfh'])->validate();
+                    $d = array_combine([$identity, 'work_date', 'clock_in', 'clock_out', 'mode'], $values);
+                    validator($d, [$identity => $identity === 'email' ? ['required', 'email', 'regex:/^[^@\s]+@alfar\.id$/i'] : 'required|string', 'work_date' => 'required|date_format:Y-m-d', 'clock_in' => 'required|date_format:Y-m-d H:i:s', 'clock_out' => 'nullable|date_format:Y-m-d H:i:s|after:clock_in', 'mode' => 'required|in:wfo,wfh'])->validate();
                     $rows[] = $d;
                 }
                 break;
@@ -168,9 +173,9 @@ class AttendanceController extends Controller
         }
         DB::transaction(function () use ($rows, $a, $r, $attendance) {
             foreach ($rows as $i => $d) {
-                $e = DB::table('employees')->where('nik', $d['nik'])->first();
+                $e = isset($d['email']) ? DB::table('employees')->where('user_id', DB::table('users')->where('email', strtolower(trim($d['email'])))->value('id'))->first() : DB::table('employees')->where('nik', $d['nik'])->first();
                 if (! $e) {
-                    throw ValidationException::withMessages(['file' => 'Baris '.($i + 2).': NIK tidak ditemukan.']);
+                    throw ValidationException::withMessages(['file' => 'Baris '.($i + 2).(isset($d['email']) ? ': Email karyawan tidak ditemukan.' : ': NIK tidak ditemukan.')]);
                 }
                 $a->authorize($r->user(), 'attendance.manage', $e->id);
                 try {
@@ -195,7 +200,7 @@ class AttendanceController extends Controller
         abort_unless(is_string($token) && $token !== '', 401);
         $device = DB::table('devices')->where('token_hash', hash('sha256', $token))->where('active', true)->where('type', 'fingerprint')->first();
         abort_unless($device !== null, 401);
-        $data = $r->validate(['external_event_id' => 'required|string|max:150', 'external_id' => 'required|string|max:100', 'event' => 'required|in:in,out', 'occurred_at' => 'required|date_format:Y-m-d H:i:s', 'work_date' => 'required|date_format:Y-m-d']);
+        $data = $r->validate(['external_event_id' => 'required|string|max:150', 'external_id' => 'required|string|max:100', 'event' => 'nullable|in:in,out', 'occurred_at' => 'required|date_format:Y-m-d H:i:s', 'work_date' => 'nullable|date_format:Y-m-d']);
         abort_if(CarbonImmutable::parse($data['occurred_at'])->gt(now()->addMinutes(2)), 422, 'Waktu perangkat berada di masa depan.');
 
         return DB::transaction(function () use ($device, $data, $attendance) {
@@ -205,7 +210,7 @@ class AttendanceController extends Controller
             }
             $mapping = DB::table('device_employees')->where('device_id', $device->id)->where('external_id', $data['external_id'])->first();
             abort_unless($mapping !== null, 422, 'Identitas fingerprint belum dipetakan.');
-            $record = $attendance->record($mapping->employee_id, $data['event'], 'wfo', 'fingerprint', CarbonImmutable::parse($data['occurred_at']), $data['work_date']);
+            $record = $attendance->automaticRecord($mapping->employee_id, 'fingerprint', CarbonImmutable::parse($data['occurred_at']))['record'];
             DB::table('device_events')->insert(['device_id' => $device->id, 'external_event_id' => $data['external_event_id'], 'occurred_at' => $data['occurred_at'], 'created_at' => now(), 'updated_at' => now()]);
             Access::audit(null, 'fingerprint.receive', 'device:'.$device->id, null, ['event_id' => $data['external_event_id'], 'attendance_id' => $record->id]);
 

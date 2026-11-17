@@ -44,6 +44,10 @@ import {
 } from '@/lib/accessLabels';
 import AppSelect from '@/components/alfar/AppSelect.vue';
 import BulkScheduleForm from '@/components/alfar/BulkScheduleForm.vue';
+import SearchInput from '@/components/alfar/SearchInput.vue';
+import EmployeeSchedules from '@/components/alfar/EmployeeSchedules.vue';
+import AttendanceReport from '@/components/alfar/AttendanceReport.vue';
+import { toast } from 'vue-sonner';
 import DataForm, { type Field } from '@/components/alfar/DataForm.vue';
 
 interface Row {
@@ -366,7 +370,7 @@ const employeeOptions = computed(() => names(props.employees));
 const filteredEmployees = computed(() =>
     props.employees.filter(
         (e) =>
-            `${e.name} ${e.nik} ${e.position}`
+            `${e.name} ${e.position} ${e.department}`
                 .toLowerCase()
                 .includes(query.value.toLowerCase()) &&
             (!department.value || e.department === department.value),
@@ -375,7 +379,7 @@ const filteredEmployees = computed(() =>
 const filteredReports = computed(() =>
     props.reports.filter(
         (r) =>
-            `${r.employee.name} ${r.employee.nik}`
+            `${r.employee.name} ${r.employee.position} ${r.employee.department}`
                 .toLowerCase()
                 .includes(query.value.toLowerCase()) &&
             (!department.value || r.employee.department === department.value) &&
@@ -516,7 +520,14 @@ function editEmployee(e?: Employee) {
             names(props.accounts),
             e?.user_id,
         ),
-        field('nik', 'NIK', 'text', true, undefined, e?.nik),
+        field(
+            'department_id',
+            'Divisi',
+            'select',
+            true,
+            names(props.departments),
+            e?.department_id,
+        ),
         field(
             'position_id',
             'Jabatan',
@@ -734,7 +745,7 @@ function importExcel() {
         fields: [
             {
                 ...field('file', 'Berkas Excel', 'file'),
-                hint: 'Header: nik, work_date, clock_in, clock_out, mode. Tanggal YYYY-MM-DD; waktu YYYY-MM-DD HH:mm:ss. Maksimal 2000 baris. Semua sel berupa teks; mode wfo/wfh.',
+                hint: 'Header: email, work_date, clock_in, clock_out, mode. Tanggal YYYY-MM-DD; waktu YYYY-MM-DD HH:mm:ss. Maksimal 2000 baris. Semua sel berupa teks; mode wfo/wfh.',
             },
         ],
     };
@@ -752,15 +763,27 @@ function changeStatus() {
 function editMaster(entity: string, row: Row) {
     const specs: Record<string, string[][]> = {
         departments: [['name', 'Nama divisi']],
-        positions: [
-            ['name', 'Nama jabatan'],
-            ['department_id', 'Divisi', 'select'],
-        ],
+        positions: [['name', 'Nama jabatan']],
         shifts: [
             ['name', 'Nama shift'],
             ['starts_at', 'Jam masuk', 'time'],
             ['ends_at', 'Jam keluar', 'time'],
             ['tolerance_minutes', 'Toleransi (menit)', 'number'],
+            [
+                'checkin_early_minutes',
+                'Boleh masuk sebelum jadwal (menit)',
+                'number',
+            ],
+            [
+                'checkout_after_minutes',
+                'Boleh pulang setelah jam masuk (menit)',
+                'number',
+            ],
+            [
+                'checkout_grace_minutes',
+                'Batas pindai setelah jam pulang (menit)',
+                'number',
+            ],
         ],
         periods: [
             ['name', 'Nama periode'],
@@ -934,6 +957,28 @@ function registerDevice() {
 }
 onMounted(() => startNotifications(Number(page.props.auth.user.id)));
 onBeforeUnmount(stopNotifications);
+const accountQuery = ref('');
+const filteredAccounts = computed(() =>
+    props.accounts.filter((u) =>
+        `${u.name} ${u.email}`
+            .toLocaleLowerCase('id')
+            .includes(accountQuery.value.toLocaleLowerCase('id')),
+    ),
+);
+function removeItem(entity: string, id: number, name: string) {
+    toast(`Hapus ${name}?`, {
+        description: 'Riwayat yang sudah tercatat tetap disimpan.',
+        action: {
+            label: 'Hapus',
+            onClick: () =>
+                router.delete(`/manage/${entity}/${id}`, {
+                    preserveScroll: true,
+                }),
+        },
+        cancel: { label: 'Batal', onClick: () => {} },
+        duration: 12000,
+    });
+}
 </script>
 
 <template>
@@ -1321,12 +1366,10 @@ onBeforeUnmount(stopNotifications);
 
                 <template v-if="tab === 'employees'">
                     <div class="toolbar">
-                        <div class="search-input">
-                            <Search :size="17" /><input
-                                v-model="query"
-                                placeholder="Cari nama, NIK, atau jabatan…"
-                            />
-                        </div>
+                        <SearchInput
+                            v-model="query"
+                            placeholder="Cari nama, jabatan, atau divisi…"
+                        />
                         <AppSelect
                             v-model="department"
                             :options="[
@@ -1349,7 +1392,7 @@ onBeforeUnmount(stopNotifications);
                             class="employee-card"
                         >
                             <div class="employee-card-top">
-                                <span class="pill neutral">{{ e.nik }}</span
+                                <span class="pill neutral">Karyawan</span
                                 ><span class="employee-dot" />
                             </div>
                             <div
@@ -1359,10 +1402,7 @@ onBeforeUnmount(stopNotifications);
                                 {{ initials(e.name) }}
                             </div>
                             <h3>{{ e.name }}</h3>
-                            <p>{{ e.position }}</p>
-                            <span class="department-tag">{{
-                                e.department
-                            }}</span>
+                            <p>{{ e.position }} · {{ e.department }}</p>
                             <div class="employee-meta">
                                 <span
                                     ><span class="live-dot" />{{
@@ -1394,6 +1434,13 @@ onBeforeUnmount(stopNotifications);
                                 "
                             >
                                 Lihat kinerja <ArrowRight :size="15" />
+                            </button>
+                            <button
+                                v-if="has('organization.manage')"
+                                class="text-button"
+                                @click="removeItem('employees', e.id, e.name)"
+                            >
+                                Hapus karyawan
                             </button>
                         </article>
                     </div>
@@ -1469,7 +1516,6 @@ onBeforeUnmount(stopNotifications);
                                     page.props.auth?.user?.name || 'Karyawan',
                                 )
                             "
-                            :nik="me.nik"
                             :allow-wfo="Boolean(me.allow_wfo)"
                         />
                         <form
@@ -1512,6 +1558,14 @@ onBeforeUnmount(stopNotifications);
                             </button>
                         </form>
                     </section>
+                    <EmployeeSchedules
+                        v-if="tab === 'schedules'"
+                        :employees="employees"
+                        :can-manage="has('organization.manage')"
+                    />
+                    <AttendanceReport
+                        v-if="tab === 'attendance' && has('attendance.read')"
+                    />
                     <template v-if="tab === 'scanner' && has('attendance.scan')"
                         ><div class="info-banner">
                             <QrCode :size="20" /><span
@@ -1558,10 +1612,7 @@ onBeforeUnmount(stopNotifications);
                             Tetapkan jadwal
                         </button>
                     </section>
-                    <section
-                        v-if="['attendance', 'my-attendance'].includes(tab)"
-                        class="panel"
-                    >
+                    <section v-if="tab === 'my-attendance'" class="panel">
                         <div class="panel-heading">
                             <div>
                                 <h2>Catatan kehadiran</h2>
@@ -1704,10 +1755,7 @@ onBeforeUnmount(stopNotifications);
                             </table>
                         </div>
                     </section>
-                    <section
-                        v-if="['schedules', 'my-attendance'].includes(tab)"
-                        class="panel"
-                    >
+                    <section v-if="tab === 'my-attendance'" class="panel">
                         <div class="panel-heading">
                             <h2>Jadwal kerja</h2>
                             <span class="muted"
@@ -2149,7 +2197,7 @@ onBeforeUnmount(stopNotifications);
                                 >
                                 <h2>{{ currentReport.employee.name }}</h2>
                                 <p>
-                                    {{ currentReport.employee.nik }} ·
+                                    {{ currentReport.employee.position }} ·
                                     {{ currentReport.employee.position }} ·
                                     {{ currentReport.employee.department }}
                                 </p>
@@ -2441,16 +2489,7 @@ onBeforeUnmount(stopNotifications);
                                         openForm(
                                             'Tambah jabatan',
                                             'positions',
-                                            [
-                                                field(
-                                                    'department_id',
-                                                    'Divisi',
-                                                    'select',
-                                                    true,
-                                                    names(departments),
-                                                ),
-                                                field('name', 'Nama jabatan'),
-                                            ],
+                                            [field('name', 'Nama jabatan')],
                                         )
                                     "
                                 >
@@ -2463,18 +2502,20 @@ onBeforeUnmount(stopNotifications);
                                 class="master-row"
                             >
                                 <div>
-                                    <strong>{{ p.name }}</strong
-                                    ><small>{{
-                                        departments.find(
-                                            (d) => d.id === p.department_id,
-                                        )?.name
-                                    }}</small>
+                                    <strong>{{ p.name }}</strong>
                                 </div>
                                 <button
                                     class="text-button"
                                     @click="editMaster('positions', p)"
                                 >
-                                    Ubah
+                                    Ubah</button
+                                ><button
+                                    class="text-button"
+                                    @click="
+                                        removeItem('positions', p.id, p.name)
+                                    "
+                                >
+                                    Hapus
                                 </button>
                             </div>
                             <p v-if="!positions.length" class="table-empty">
@@ -2509,6 +2550,30 @@ onBeforeUnmount(stopNotifications);
                                                 'tolerance_minutes',
                                                 'Toleransi keterlambatan (menit)',
                                                 'number',
+                                            ),
+                                            field(
+                                                'checkin_early_minutes',
+                                                'Boleh masuk sebelum jadwal (menit)',
+                                                'number',
+                                                true,
+                                                undefined,
+                                                120,
+                                            ),
+                                            field(
+                                                'checkout_after_minutes',
+                                                'Boleh pulang setelah jam masuk (menit)',
+                                                'number',
+                                                true,
+                                                undefined,
+                                                240,
+                                            ),
+                                            field(
+                                                'checkout_grace_minutes',
+                                                'Batas pindai setelah jam pulang (menit)',
+                                                'number',
+                                                true,
+                                                undefined,
+                                                120,
                                             ),
                                         ])
                                     "
@@ -2772,6 +2837,10 @@ onBeforeUnmount(stopNotifications);
                                 <Plus :size="16" />Buat akun
                             </button>
                         </div>
+                        <SearchInput
+                            v-model="accountQuery"
+                            placeholder="Cari nama atau email akun…"
+                        />
                         <div class="table-wrap">
                             <table>
                                 <thead>
@@ -2782,7 +2851,10 @@ onBeforeUnmount(stopNotifications);
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr v-for="u in accounts" :key="u.id">
+                                    <tr
+                                        v-for="u in filteredAccounts"
+                                        :key="u.id"
+                                    >
                                         <td>{{ u.name }}</td>
                                         <td>{{ u.email }}</td>
                                         <td>
@@ -2795,7 +2867,18 @@ onBeforeUnmount(stopNotifications);
                                                     editMaster('accounts', u)
                                                 "
                                             >
-                                                Ubah
+                                                Ubah</button
+                                            ><button
+                                                class="text-button"
+                                                @click="
+                                                    removeItem(
+                                                        'accounts',
+                                                        u.id,
+                                                        u.name,
+                                                    )
+                                                "
+                                            >
+                                                Hapus
                                             </button>
                                         </td>
                                     </tr>

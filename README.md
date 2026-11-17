@@ -66,13 +66,15 @@ Role rekomendasi (dibuat melalui panel, bukan dikunci dalam kode):
 
 Karyawan membuka **Absensi saya** untuk menampilkan QR pribadinya. QR berubah setiap 15 detik, terikat ke identitas pemilik akun, dan hanya QR terbaru yang berlaku. Token disimpan sebagai hash dan sekali pakai. Karyawan tidak memerlukan izin khusus untuk menampilkan QR sendiri, tetapi harus memiliki profil aktif dan akses WFO.
 
-Petugas dengan izin **Pindai QR karyawan untuk mencatat absensi** (`attendance.scan`) membuka **Pemindai QR kantor**. Pilih perangkat aktif, cara pemindaian, dan mode **Masuk** atau **Pulang**. Setelah QR terbaca, server langsung mencatat identitas pemilik QR dan waktu server, memeriksa jadwal, akses WFO, cakupan petugas, kedaluwarsa, dan duplikasi. Pemindaian berulang pada mode masuk tidak otomatis berubah menjadi pulang. Tanggal kerja dapat dikosongkan untuk memilih jadwal yang sedang berlaku; jika jadwal ambigu (misalnya shift berdekatan), petugas memilih tanggal kerja secara eksplisit.
+Petugas dengan izin **Pindai QR karyawan untuk mencatat absensi** (`attendance.scan`) membuka **Pemindai QR kantor**. Semua perangkat terdaftar yang aktif dapat dipakai bersamaan; tidak ada pilihan perangkat atau jenis absensi. Kamera dan kolom scanner USB tersedia bersama, sementara fingerprint menerima event melalui endpoint terpisah. Server menentukan masuk/pulang dari jadwal dan catatan sebelumnya, memeriksa akses WFO, cakupan petugas, token terbaru, kedaluwarsa, dan duplikasi.
+
+Bawaan shift: masuk dibuka 120 menit sebelum jadwal, pulang dibuka 240 menit setelah jam masuk terjadwal, dan pindai ditutup 120 menit setelah jam pulang. Shift 08.00–17.00 menerima masuk mulai 06.00, pulang mulai 12.00, hingga 19.00. Ketiga batas dapat diatur pada shift dan disalin ke jadwal sehingga perubahan shift tidak mengubah jadwal lama diam-diam. Pindai ulang sebelum waktu pulang ditolak dengan toast, bukan mengubahnya menjadi pulang. Karyawan tanpa catatan masuk yang datang setelah batas pulang harus mengajukan koreksi. Shift malam memakai tanggal mulai kerja; jadwal yang sama dekatnya ditolak agar petugas memperbaiki jadwal yang bertumpuk. Toleransi menentukan keterlambatan, bukan menghalangi pencatatan keterlambatan hingga batas masuk berakhir.
 
 Tiga kategori perangkat tersedia pada **Perangkat absensi**:
 
 - **Sidik jari**: endpoint dan pemetaan identitas perangkat, memerlukan adapter vendor untuk alat fisik.
 - **Pemindai QR**: kamera laptop atau alat scanner QR yang mengirim teks seperti keyboard dan diakhiri Enter. Untuk tahap awal gunakan kamera laptop; izinkan kamera di browser melalui HTTPS.
-- **Kamera HP**: petugas membuka halaman pemindai di HP dan memilih perangkat kamera HP yang telah didaftarkan. Kamera belakang diprioritaskan.
+- **Kamera HP**: petugas membuka halaman pemindai di HP dengan perangkat kamera HP aktif yang telah didaftarkan. Kamera belakang diprioritaskan.
 
 Kamera laptop/scanner/kamera HP tidak memerlukan token API fingerprint. Kunci perangkat hanya untuk koneksi alat sidik jari. Karyawan menampilkan QR; petugas/perangkat kantor yang memindai. QR dinamis mengurangi replay tetapi belum membuktikan lokasi fisik atau mencegah gambar dibagikan selama masa berlaku 15 detik.
 
@@ -82,11 +84,11 @@ Tombol **Saya WFH** tetap mengecek server: akun `allow_wfh` bisa langsung absen,
 
 Unduh [template Excel](public/template-absensi.xlsx). Format **.xlsx**, sheet pertama, header persis:
 
-| nik    | work_date  | clock_in            | clock_out           | mode |
-| ------ | ---------- | ------------------- | ------------------- | ---- |
-| NIK001 | 2026-11-17 | 2026-11-17 08:00:00 | 2026-11-17 17:00:00 | wfo  |
+| email         | work_date  | clock_in            | clock_out           | mode |
+| ------------- | ---------- | ------------------- | ------------------- | ---- |
+| nama@alfar.id | 2026-11-17 | 2026-11-17 08:00:00 | 2026-11-17 17:00:00 | wfo  |
 
-Gunakan sel berformat teks, tanggal `YYYY-MM-DD`, waktu `YYYY-MM-DD HH:mm:ss` dalam Asia/Jakarta. `clock_out` boleh kosong; mode `wfo` atau `wfh`. Maksimal 2000 baris/5 MB. Impor bersifat atomik: satu baris invalid membatalkan seluruh berkas. NIK, akses, jadwal, izin WFH dan duplikasi diperiksa; catatan lama tidak ditimpa. Format mesin yang berbeda memerlukan pemetaan sebelum impor.
+Template menggunakan email akun @alfar.id sebagai identitas; format NIK lama tetap didukung untuk kompatibilitas. Gunakan sel berformat teks, tanggal `YYYY-MM-DD`, waktu `YYYY-MM-DD HH:mm:ss` dalam Asia/Jakarta. `clock_out` boleh kosong; mode `wfo` atau `wfh`. Maksimal 2000 baris/5 MB. Impor bersifat atomik: satu baris invalid membatalkan seluruh berkas. Email, akses, jadwal, izin WFH dan duplikasi diperiksa; catatan lama tidak ditimpa. Format mesin yang berbeda memerlukan pemetaan sebelum impor.
 
 ## Fondasi fingerprint
 
@@ -100,13 +102,11 @@ Content-Type: application/json
 {
   "external_event_id": "gate-a-000001",
   "external_id": "0042",
-  "event": "in",
-  "occurred_at": "2026-11-17 08:00:00",
-  "work_date": "2026-11-17"
+  "occurred_at": "2026-11-17 08:00:00"
 }
 ```
 
-Untuk keluar gunakan `event: out`. Event yang sama idempotent; event baru tidak boleh menggandakan punch yang sudah ada. Fingerprint selalu WFO dan mengikuti jadwal/toleransi yang sama. Event ditolak jika akun tidak aktif, identitas belum dipetakan, di luar jadwal, atau jam perangkat di masa depan. Vendor adapter harus menentukan jenis event dan tanggal kerja untuk shift malam. **Driver/protokol alat fisik belum dihubungkan**, sesuai keputusan menunda konfigurasi alat.
+Jenis masuk/pulang dan tanggal kerja ditentukan otomatis oleh server; atribut lama `event` dan `work_date` boleh dikirim tetapi tidak mengubah penentuan otomatis. Event yang sama idempotent; event baru tidak boleh menggandakan punch yang sudah ada. Fingerprint selalu WFO dan mengikuti jadwal/toleransi yang sama. Event ditolak jika akun tidak aktif, identitas belum dipetakan, di luar jadwal, atau jam perangkat di masa depan. Vendor adapter mengirim identitas dan waktu perangkat dalam Asia/Jakarta. **Driver/protokol alat fisik belum dihubungkan**, sesuai keputusan menunda konfigurasi alat.
 
 ## Batas MVP
 
@@ -126,7 +126,7 @@ Setiap akun hanya dapat membaca, menandai dibaca, dan menghapus notifikasinya se
 
 ## Penjadwalan massal dan dropdown
 
-Buka **Kehadiran → Jadwal karyawan → Tetapkan jadwal**. Pilih beberapa karyawan melalui dropdown pencarian nama/NIK/divisi, atau tekan **Pilih semua** untuk seluruh karyawan aktif yang tersedia. Akun tidak aktif ditolak server.
+Buka **Kehadiran → Jadwal karyawan → Tetapkan jadwal**. Pilih beberapa karyawan melalui dropdown pencarian nama/jabatan/divisi, atau tekan **Pilih semua** untuk seluruh karyawan aktif yang tersedia. Akun tidak aktif ditolak server.
 
 Pilih shift, tanggal mulai, lalu pilihan cepat **1 minggu**, **1 bulan**, **3 bulan**, atau rentang sendiri. Pilihan minggu mencakup 7 hari kalender; pilihan bulan mengikuti bulan kalender dari tanggal mulai. Pilih hari kerja yang digunakan; semua hari dipilih secara awal, termasuk akhir pekan. Ringkasan menampilkan jumlah karyawan × hari kerja sebelum disimpan.
 
@@ -134,4 +134,12 @@ Secara awal, jadwal yang sudah ada dipertahankan. Pilihan **Perbarui jadwal yang
 
 Penyimpanan bersifat atomik, memakai operasi database berkelompok (500 jadwal per batch), maksimal 2.000 karyawan, rentang 366 hari, dan 50.000 kombinasi jadwal per permintaan. Uji mencakup 200 karyawan × 90 hari = 18.000 jadwal. Hasil toast merangkum jadwal dibuat, diperbarui, dipertahankan, dan dilindungi karena absensi. Satu log audit dan satu notifikasi per akun terdampak dibuat untuk satu proses massal, bukan per hari. Tabel jadwal masih menampilkan maksimal 500 catatan terbaru dalam periode yang dipilih.
 
-Seluruh dropdown pada formulir, filter, perangkat pemindai, dan peran menggunakan komponen `AppSelect`, tanpa elemen select native. Mendukung pencarian, keyboard panah/Enter/Escape/Tab, serta panel pilihan yang mengikuti ukuran layar dan tetap terlihat di dalam modal.
+Seluruh dropdown pada formulir, filter, dan peran menggunakan komponen `AppSelect`, tanpa elemen select native. Mendukung pencarian, keyboard panah/Enter/Escape/Tab, serta panel pilihan yang mengikuti ukuran layar dan tetap terlihat di dalam modal.
+
+## Pengelolaan karyawan dan kalender
+
+Jabatan berdiri sendiri; divisi dipilih pada profil karyawan. Karyawan baru mendapat identitas internal otomatis, tanpa kolom NIK. Migrasi mempertahankan divisi dan identitas data lama, termasuk riwayat penempatan. Kartu menampilkan nama, jabatan dan divisi. Pencarian akun menggunakan komponen yang sama dengan pencarian karyawan dan rekap. Semua form edit menyimpan ID secara internal tanpa menampilkan kolom ID.
+
+Hapus jabatan, akun dan karyawan mengarsipkan data dari daftar aktif sambil mempertahankan relasi dan riwayat. Hapus akun/karyawan menonaktifkan login; akun sendiri dan superadmin dilindungi. Email akun terarsip yang dibuat ulang dipulihkan dengan password sementara baru dan peran lama dikosongkan. Profil terarsip dapat dihubungkan kembali melalui akun tersebut.
+
+Jadwal ditampilkan sebagai kartu per karyawan, dengan detail daftar shift serta kalender mingguan/bulanan. Hijau hadir, merah alfa, kuning sakit dan biru izin/cuti, masing-masing dengan ikon. Jadwal mendatang atau yang belum selesai tidak dihitung alfa. Hapus satu hari atau periode kalender hanya menghapus jadwal tanpa catatan absensi. Rekap memiliki rentang tanggal (maksimal 366 hari), pencarian nama/jabatan/divisi dan paginasi, sesuai cakupan izin; data tidak dibatasi 500 catatan pertama.

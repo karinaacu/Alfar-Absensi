@@ -11,6 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia as Assert;
 use OpenSpout\Common\Entity\Row;
 use OpenSpout\Writer\XLSX\Writer;
@@ -291,6 +292,23 @@ class AlfarWorkflowTest extends TestCase
         $this->postJson('/attendance/import', ['file' => $file])->assertUnprocessable();
         $this->assertDatabaseCount('attendances', 1);
         unlink($path);
+    }
+
+    public function test_excel_import_accepts_account_email_without_employee_number(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'alfar').'.xlsx';
+        $writer = new Writer;
+        $writer->openToFile($path);
+        $writer->addRow(Row::fromValues(['email', 'work_date', 'clock_in', 'clock_out', 'mode']));
+        $writer->addRow(Row::fromValues([strtoupper($this->worker->email), '2026-11-17', '2026-11-17 08:00:00', '2026-11-17 17:00:00', 'wfo']));
+        $writer->close();
+        try {
+            $file = new UploadedFile($path, 'absensi.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+            $this->actingAs($this->admin)->post('/attendance/import', ['file' => $file])->assertRedirect()->assertSessionHasNoErrors();
+            $this->assertDatabaseHas('attendances', ['employee_id' => $this->employee, 'source' => 'excel', 'clock_out' => '2026-11-17 17:00:00']);
+        } finally {
+            unlink($path);
+        }
     }
 
     public function test_targets_are_locked_after_period_activation_and_weights_must_total_100(): void
@@ -609,5 +627,108 @@ class AlfarWorkflowTest extends TestCase
         $this->assertDatabaseCount('employee_notifications', 201);
         $this->assertDatabaseCount('audit_logs', 1);
         $this->assertDatabaseHas('schedules', ['employee_id' => $ids[199], 'work_date' => '2027-02-28']);
+    }
+
+    public function test_standalone_jobs_and_employee_divisions_control_scope_without_nik_input(): void
+    {
+        $this->actingAs($this->admin)->post('/manage/positions', ['name' => 'Koordinator'])->assertRedirect()->assertSessionHasNoErrors();
+        $position = (int) DB::table('positions')->where('name', 'Koordinator')->value('id');
+        $this->assertDatabaseHas('positions', ['id' => $position, 'department_id' => null]);
+        $other = DB::table('departments')->insertGetId(['name' => 'Gudang']);
+        $data = ['id' => $this->employee, 'user_id' => $this->worker->id, 'position_id' => $position, 'department_id' => $other, 'supervisor_id' => $this->supervisorEmployee, 'starts_on' => '2026-11-17', 'allow_wfo' => true, 'allow_wfh' => false];
+        $this->post('/manage/employees', $data)->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('employees', ['id' => $this->employee, 'department_id' => $other, 'nik' => 'OP1']);
+        $this->assertDatabaseHas('placements', ['employee_id' => $this->employee, 'department_id' => $other, 'position_id' => $position]);
+        $this->grant($this->supervisor, 'attendance.read', 'department');
+        $this->assertFalse(app(Access::class)->allows($this->supervisor, 'attendance.read', $this->employee));
+        $this->post('/manage/employees', [...$data, 'allow_wfh' => true])->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('placements', 1);
+        $new = User::factory()->create();
+        $this->post('/manage/employees', [...$data, 'id' => null, 'user_id' => $new->id])->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertStringStartsWith('EMP-', DB::table('employees')->where('user_id', $new->id)->value('nik'));
+    }
+
+    public function test_deleting_accounts_and_employees_preserves_history_and_blocks_access(): void
+    {
+        app(Attendance::class)->record($this->employee, 'in', 'wfo', 'web', CarbonImmutable::now(), '2026-11-17');
+        $this->actingAs($this->worker)->deleteJson('/manage/employees/'.$this->employee)->assertForbidden();
+        $this->actingAs($this->admin)->delete('/manage/employees/'.$this->employee)->assertRedirect();
+        $this->assertNotNull(DB::table('employees')->where('id', $this->employee)->value('deleted_at'));
+        $this->assertDatabaseCount('attendances', 1);
+        $this->assertDatabaseCount('schedules', 1);
+        $this->assertFalse($this->worker->fresh()->active);
+        $this->deleteJson('/manage/accounts/'.$this->admin->id)->assertUnprocessable();
+        $this->delete('/manage/accounts/'.$this->worker->id)->assertRedirect();
+        $this->assertNotNull($this->worker->fresh()->deleted_at);
+        $this->post('/manage/accounts', ['name' => 'Operator baru', 'email' => $this->worker->email, 'password' => 'TemporaryPassword123', 'password_confirmation' => 'TemporaryPassword123'])->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertNull($this->worker->fresh()->deleted_at);
+        $this->assertDatabaseCount('users', 3);
+    }
+
+    public function test_deleting_a_position_keeps_existing_profiles_and_hides_it_from_new_choices(): void
+    {
+        $this->actingAs($this->admin)->delete('/manage/positions/'.$this->position)->assertRedirect();
+        $this->assertDatabaseHas('employees', ['id' => $this->employee, 'position_id' => $this->position]);
+        $this->get('/dashboard')->assertInertia(fn (Assert $page) => $page->has('positions', 0)->has('employees', 2));
+        $this->post('/manage/positions', ['name' => 'Operator'])->assertRedirect()->assertSessionHasNoErrors();
+    }
+
+    public function test_calendar_scope_and_schedule_deletion_protect_recorded_attendance(): void
+    {
+        $this->actingAs($this->supervisor)->getJson('/employees/'.$this->employee.'/calendar?from=2026-11-01&to=2026-11-30')->assertForbidden();
+        $this->actingAs($this->worker)->getJson('/employees/'.$this->employee.'/calendar?from=2026-11-01&to=2026-11-30')->assertOk()->assertJsonCount(1, 'schedules');
+        $this->actingAs($this->admin)->post('/schedules/bulk', ['employee_ids' => [$this->employee], 'shift_id' => $this->shift, 'starts_on' => '2026-11-18', 'ends_on' => '2026-11-18', 'weekdays' => [3], 'existing' => 'skip'])->assertRedirect();
+        app(Attendance::class)->record($this->employee, 'in', 'wfo', 'web', CarbonImmutable::now(), '2026-11-17');
+        $this->delete('/employees/'.$this->employee.'/schedules', ['from' => '2026-11-01', 'to' => '2026-11-30'])->assertRedirect();
+        $this->assertDatabaseCount('schedules', 1);
+        $this->assertDatabaseHas('schedules', ['work_date' => '2026-11-17']);
+        $this->getJson('/employees/'.$this->employee.'/calendar?from=2026-01-01&to=2026-11-30')->assertUnprocessable();
+    }
+
+    public function test_automatic_scanner_ignores_requested_event_and_does_not_turn_repeat_into_checkout(): void
+    {
+        DB::table('devices')->insert(['name' => 'Scanner aktif', 'type' => 'scanner', 'active' => true, 'token_hash' => hash('sha256', 'test-scanner')]);
+        $this->travelTo(CarbonImmutable::parse('2026-11-17 06:00:00'));
+        $qr = $this->actingAs($this->worker)->postJson('/attendance/qr')->json('url');
+        parse_str(parse_url($qr, PHP_URL_QUERY), $params);
+        $this->actingAs($this->admin)->postJson('/attendance/scan', ['token' => $params['employee_qr'], 'input_method' => 'usb_scanner', 'event' => 'out'])->assertOk()->assertJsonPath('event', 'in');
+        $this->travelTo(CarbonImmutable::parse('2026-11-17 08:00:00'));
+        $qr = $this->actingAs($this->worker)->postJson('/attendance/qr')->json('url');
+        parse_str(parse_url($qr, PHP_URL_QUERY), $params);
+        $this->actingAs($this->admin)->postJson('/attendance/scan', ['token' => $params['employee_qr'], 'input_method' => 'laptop_camera'])->assertUnprocessable();
+        $this->assertDatabaseHas('attendances', ['employee_id' => $this->employee, 'clock_out' => null]);
+        $this->travelTo(CarbonImmutable::parse('2026-11-17 12:00:00'));
+        $qr = $this->actingAs($this->worker)->postJson('/attendance/qr')->json('url');
+        parse_str(parse_url($qr, PHP_URL_QUERY), $params);
+        $this->actingAs($this->admin)->postJson('/attendance/scan', ['token' => $params['employee_qr'], 'input_method' => 'laptop_camera', 'event' => 'in'])->assertOk()->assertJsonPath('event', 'out');
+        $this->assertDatabaseHas('attendances', ['early_minutes' => 300]);
+        $this->assertDatabaseCount('employee_notifications', 2);
+    }
+
+    public function test_automatic_attendance_obeys_custom_night_shift_windows_and_missing_checkin(): void
+    {
+        DB::table('schedules')->where('employee_id', $this->employee)->update(['scheduled_in' => '2026-11-17 22:00:00', 'scheduled_out' => '2026-11-18 06:00:00', 'checkin_early_minutes' => 30, 'checkout_after_minutes' => 180]);
+        $attendance = app(Attendance::class);
+        $result = $attendance->automaticRecord($this->employee, 'fingerprint', CarbonImmutable::parse('2026-11-17 21:30:00'));
+        $this->assertSame('in', $result['event']);
+        $result = $attendance->automaticRecord($this->employee, 'fingerprint', CarbonImmutable::parse('2026-11-18 01:00:00'));
+        $this->assertSame('out', $result['event']);
+        $this->assertSame('2026-11-17', $result['record']->work_date);
+        DB::table('attendances')->delete();
+        $this->expectException(ValidationException::class);
+        $attendance->automaticRecord($this->employee, 'fingerprint', CarbonImmutable::parse('2026-11-18 02:00:00'));
+    }
+
+    public function test_attendance_recap_filters_range_search_and_scope_and_marks_only_elapsed_shifts_absent(): void
+    {
+        $this->worker->update(['name' => 'Operator Packing']);
+        $this->actingAs($this->admin)->getJson('/attendance/report?from=2026-11-01&to=2026-11-30&search=Packing')->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.status', 'scheduled');
+        $this->travelTo(CarbonImmutable::parse('2026-11-17 18:00:00'));
+        $this->getJson('/attendance/report?from=2026-11-01&to=2026-11-30&search=Packing')->assertOk()->assertJsonPath('data.0.status', 'unexcused');
+        $this->getJson('/attendance/report?from=2026-11-18&to=2026-11-30')->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($this->supervisor)->getJson('/attendance/report?from=2026-11-01&to=2026-11-30')->assertForbidden();
+        $this->grant($this->supervisor, 'attendance.read', 'self');
+        $this->getJson('/attendance/report?from=2026-11-01&to=2026-11-30')->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($this->admin)->getJson('/attendance/report?from=2026-01-01&to=2027-12-31')->assertUnprocessable();
     }
 }

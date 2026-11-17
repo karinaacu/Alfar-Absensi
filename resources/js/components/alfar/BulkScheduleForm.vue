@@ -6,7 +6,7 @@ const props = defineProps<{
     employees: {
         id: number;
         name: string;
-        nik: string;
+        position: string;
         department: string;
         active?: boolean | number;
     }[];
@@ -36,7 +36,7 @@ const options = computed(() =>
     available.value.map((e) => ({
         value: e.id,
         label: e.name,
-        description: `${e.nik} · ${e.department}`,
+        description: `${e.position} · ${e.department}`,
     })),
 );
 const weekdays = [
@@ -126,7 +126,7 @@ const total = computed(() => days.value * form.employee_ids.length);
             placeholder="Pilih satu atau beberapa karyawan"
         /><small
             >{{ form.employee_ids.length }} karyawan dipilih. Cari berdasarkan
-            nama, NIK, atau divisi.</small
+            nama, jabatan, atau divisi.</small
         ><label
             >Shift kerja<AppSelect
                 v-model="form.shift_id"

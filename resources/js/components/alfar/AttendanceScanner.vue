@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import AppSelect from '@/components/alfar/AppSelect.vue';
 import { router } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
 import { BrowserQRCodeReader, type IScannerControls } from '@zxing/browser';
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 export interface ScanDevice {
     [key: string]: unknown;
     id: number;
@@ -12,10 +11,12 @@ export interface ScanDevice {
     active: boolean | number;
 }
 const props = defineProps<{ devices: ScanDevice[] }>();
-const method = ref('laptop_camera');
-const deviceId = ref('');
-const event = ref('in');
-const workDate = ref('');
+const method = ref(
+    typeof navigator !== 'undefined' &&
+        /Android|iPhone|iPad/i.test(navigator.userAgent)
+        ? 'phone_camera'
+        : 'laptop_camera',
+);
 const rawCode = ref('');
 const input = ref<HTMLInputElement | null>(null);
 const video = ref<HTMLVideoElement | null>(null);
@@ -26,30 +27,15 @@ let lastCode = '';
 let disposed = false;
 const available = computed(() =>
     props.devices.filter(
-        (d) =>
-            d.active &&
-            d.type ===
-                (method.value === 'phone_camera' ? 'phone_camera' : 'scanner'),
+        (d) => d.active && ['scanner', 'phone_camera'].includes(d.type),
     ),
 );
-watch(
-    [method, () => props.devices],
-    () => {
-        stop();
-        deviceId.value = String(available.value[0]?.id || '');
-        lastCode = '';
-    },
-    { immediate: true },
-);
-watch([deviceId, event, workDate], () => {
-    lastCode = '';
-});
 function stop() {
     running.value = false;
     controls?.stop();
     controls = undefined;
 }
-async function consume(text: string) {
+async function consume(text: string, inputMethod = method.value) {
     if (busy.value || text === lastCode || disposed) return;
     lastCode = text;
     try {
@@ -86,10 +72,7 @@ async function consume(text: string) {
             },
             body: JSON.stringify({
                 token,
-                event: event.value,
-                device_id: Number(deviceId.value),
-                input_method: method.value,
-                work_date: workDate.value || null,
+                input_method: inputMethod,
             }),
         });
         const data = await response.json();
@@ -102,7 +85,7 @@ async function consume(text: string) {
         if (!disposed) {
             toast.success(data.message, {
                 id: 'scan-result',
-                description: `${data.employee_name} · ${data.nik} · ${data.recorded_at}`,
+                description: `${data.employee_name} · ${data.recorded_at}`,
             });
             router.reload({ only: ['attendances'] });
         }
@@ -122,7 +105,7 @@ async function consume(text: string) {
     }
 }
 async function startCamera() {
-    if (!deviceId.value || running.value) return;
+    if (!available.value.length || running.value) return;
     running.value = true;
     lastCode = '';
     await nextTick();
@@ -174,58 +157,14 @@ onBeforeUnmount(() => {
                     mencatat kehadiran WFO.
                 </p>
             </div>
-            <span class="pill purple-light">{{
-                event === 'in' ? 'ABSEN MASUK' : 'ABSEN PULANG'
-            }}</span>
+            <span class="pill purple-light">MASUK / PULANG OTOMATIS</span>
         </div>
         <div class="scanner-body">
-            <div class="scanner-settings">
-                <label
-                    >Cara memindai<AppSelect
-                        v-model="method"
-                        :options="[
-                            { value: 'laptop_camera', label: 'Kamera laptop' },
-                            { value: 'usb_scanner', label: 'Alat scanner QR' },
-                            { value: 'phone_camera', label: 'Kamera HP' },
-                        ]"
-                        aria-label="Cara memindai" /></label
-                ><label
-                    >Perangkat kantor<AppSelect
-                        v-model="deviceId"
-                        :disabled="running || busy"
-                        :options="
-                            available.map((d) => ({
-                                value: String(d.id),
-                                label: d.name,
-                            }))
-                        "
-                        aria-label="Perangkat kantor"
-                        placeholder="Pilih perangkat…" /></label
-                ><label
-                    >Jenis absensi<AppSelect
-                        v-model="event"
-                        :disabled="running || busy"
-                        :options="[
-                            { value: 'in', label: 'Masuk' },
-                            { value: 'out', label: 'Pulang' },
-                        ]"
-                        aria-label="Jenis absensi" /></label
-                ><label
-                    >Tanggal kerja (opsional)<input
-                        v-model="workDate"
-                        type="date"
-                        :disabled="running || busy"
-                    /><small
-                        >Kosongkan untuk mengikuti jadwal yang sedang
-                        berlaku.</small
-                    ></label
-                >
-            </div>
             <p v-if="!available.length" class="scanner-note">
                 Belum ada perangkat aktif untuk pilihan ini. Pengelola perlu
                 mendaftarkan perangkat pada menu Perangkat absensi.
             </p>
-            <template v-if="method !== 'usb_scanner'"
+            <template
                 ><div class="scanner-camera">
                     <video
                         ref="video"
@@ -241,29 +180,32 @@ onBeforeUnmount(() => {
                 <button
                     type="button"
                     class="primary"
-                    :disabled="!deviceId || busy"
+                    :disabled="!available.length || busy"
                     @click="running ? stop() : startCamera()"
                 >
                     {{ running ? 'Hentikan kamera' : 'Aktifkan kamera' }}
                 </button></template
             >
             <form
-                v-else
                 class="usb-scanner-form"
-                @submit.prevent="consume(rawCode)"
+                @submit.prevent="consume(rawCode, 'usb_scanner')"
             >
                 <label
                     >Hasil scanner<input
                         ref="input"
                         v-model="rawCode"
-                        :disabled="!deviceId || busy"
+                        :disabled="!available.length || busy"
                         autocomplete="off"
                         placeholder="Klik di sini, lalu pindai QR karyawan" /></label
                 ><button type="button" class="secondary" @click="focusScanner">
                     Fokuskan scanner</button
                 ><button
                     class="primary"
-                    :disabled="!deviceId || busy || !rawCode"
+                    :disabled="
+                        !available.some((d) => d.type === 'scanner') ||
+                        busy ||
+                        !rawCode
+                    "
                 >
                     Catat hasil pindai</button
                 ><small
@@ -272,8 +214,9 @@ onBeforeUnmount(() => {
                 >
             </form>
             <p class="scanner-note">
-                Mode masuk dan pulang dipilih petugas. Memindai ulang pada mode
-                yang sama tidak akan menggandakan absensi.
+                Kamera dan scanner dapat digunakan bersamaan. Fingerprint aktif
+                menerima data secara terpisah. Jenis absensi ditentukan otomatis
+                dari jadwal dan catatan masuk karyawan.
             </p>
         </div>
     </section>
