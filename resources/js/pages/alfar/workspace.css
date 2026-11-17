@@ -1757,3 +1757,90 @@ td .text-button + .text-button {
         max-width: calc(100% - 32px);
     }
 }
+
+.alfar-sidebar {
+    height: 100dvh;
+}
+.alfar-sidebar nav {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    gap: 0;
+    padding-right: 3px;
+    scrollbar-width: thin;
+}
+.sidebar-group {
+    margin-bottom: 14px;
+}
+.alfar-sidebar .sidebar-group .nav-caption {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: #8a8da4;
+    padding: 10px 14px 8px;
+    font-weight: 600;
+}
+.sidebar-group > button {
+    width: 100%;
+    margin-bottom: 4px;
+}
+.sidebar-bottom .help-card {
+    display: none;
+}
+.sidebar-bottom {
+    padding-top: 12px;
+    margin-top: 0;
+    flex-shrink: 0;
+}
+.workspace-label {
+    margin-top: 24px;
+    margin-bottom: 12px;
+}
+.master-grid {
+    grid-template-columns: 1fr;
+}
+.wfh-note {
+    width: 100%;
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.8;
+}
+.attendance-personal {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    align-items: start;
+}
+.attendance-personal .clock-form {
+    align-items: flex-start;
+}
+.attendance-personal .clock-form > select,
+.attendance-personal .clock-form > label {
+    width: 100%;
+}
+.attendance-personal .clock-form > label {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+}
+.attendance-personal .clock-form > button {
+    width: 100%;
+}
+@media (max-width: 900px) {
+    .alfar-sidebar .sidebar-group .nav-caption {
+        display: none;
+    }
+    .sidebar-group {
+        margin-bottom: 12px;
+        border-bottom: 1px solid #eeedf5;
+    }
+    .attendance-personal {
+        grid-template-columns: 1fr;
+    }
+    .alfar-sidebar nav {
+        margin-top: 24px;
+    }
+    .alfar-sidebar .sidebar-bottom {
+        display: none;
+    }
+}

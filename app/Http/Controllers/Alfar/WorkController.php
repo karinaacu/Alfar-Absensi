@@ -81,7 +81,7 @@ class WorkController extends Controller
             'attendances' => DB::table('attendances')->whereIn('employee_id', $readIds)->when($period, fn ($q) => $q->whereBetween('work_date', [$period->starts_on, $period->ends_on]))->orderByDesc('work_date')->limit(500)->get(),
             'schedules' => DB::table('schedules')->when(! $admin, fn ($q) => $q->whereIn('employee_id', $readIds))->when($period, fn ($q) => $q->whereBetween('work_date', [$period->starts_on, $period->ends_on]))->orderByDesc('work_date')->limit(500)->get(),
             'requests' => DB::table('requests')->whereIn('employee_id', array_unique([...$approvalIds, ...($me ? [$me->id] : [])]))->orderByDesc('id')->limit(200)->get(),
-            'devices' => $a->allows($user, 'devices.manage') ? DB::table('devices')->select('id', 'name', 'active')->get() : [],
+            'devices' => ($a->allows($user, 'devices.manage') || $a->allows($user, 'attendance.scan')) ? DB::table('devices')->select('id', 'name', 'type', 'active')->when(! $a->allows($user, 'devices.manage'), fn ($q) => $q->where('active', true)->whereIn('type', ['scanner', 'phone_camera']))->get() : [],
             'deviceMappings' => $a->allows($user, 'devices.manage') ? DB::table('device_employees')->get() : [],
             'audits' => $user->is_superadmin ? DB::table('audit_logs')->latest('id')->limit(100)->get() : [],
             'placements' => $admin ? DB::table('placements')->latest('id')->limit(200)->get() : [],

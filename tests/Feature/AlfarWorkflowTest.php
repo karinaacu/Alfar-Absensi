@@ -106,21 +106,115 @@ class AlfarWorkflowTest extends TestCase
         $this->assertFalse($access->allows($this->supervisor, 'reports.read', $this->employee));
     }
 
-    public function test_qr_expires_and_cannot_be_used_twice_by_one_employee(): void
+    private function scannerDevice(string $type = 'scanner'): int
     {
-        $token = $this->actingAs($this->admin)->postJson('/attendance/qr')->assertOk()->json('token');
-        $this->actingAs($this->worker)->postJson('/attendance/clock', ['mode' => 'wfo', 'event' => 'in', 'token' => $token, 'work_date' => '2026-11-17'])->assertRedirect();
-        $this->postJson('/attendance/clock', ['mode' => 'wfo', 'event' => 'out', 'token' => $token, 'work_date' => '2026-11-17'])->assertUnprocessable()->assertJsonValidationErrors('token');
-        $token = $this->actingAs($this->admin)->postJson('/attendance/qr')->json('token');
+        return DB::table('devices')->insertGetId(['name' => 'Pemindai kantor', 'type' => $type, 'token_hash' => hash('sha256', random_bytes(32))]);
+    }
+
+    private function personalToken(): string
+    {
+        $url = $this->actingAs($this->worker)->postJson('/attendance/qr')->assertOk()->assertHeader('Cache-Control', 'no-store, private')->json('url');
+        parse_str(parse_url($url, PHP_URL_QUERY), $query);
+
+        return $query['employee_qr'];
+    }
+
+    public function test_personal_qr_is_scanned_by_office_and_is_single_use_and_expires(): void
+    {
+        $device = $this->scannerDevice();
+        $token = $this->personalToken();
+        $payload = ['token' => $token, 'device_id' => $device, 'input_method' => 'laptop_camera', 'event' => 'in'];
+        $this->actingAs($this->admin)->postJson('/attendance/scan', $payload)->assertOk()->assertJsonPath('employee_name', $this->worker->name);
+        $this->assertDatabaseHas('attendances', ['employee_id' => $this->employee, 'mode' => 'wfo', 'source' => 'laptop_camera', 'clock_in' => '2026-11-17 08:00:00']);
+        $this->postJson('/attendance/scan', [...$payload, 'event' => 'out'])->assertUnprocessable()->assertJsonValidationErrors('token');
+        $token = $this->personalToken();
         $this->travel(16)->seconds();
-        $this->actingAs($this->worker)->postJson('/attendance/clock', ['mode' => 'wfo', 'event' => 'out', 'token' => $token, 'work_date' => '2026-11-17'])->assertUnprocessable()->assertJsonValidationErrors('token');
+        $this->actingAs($this->admin)->postJson('/attendance/scan', [...$payload, 'token' => $token])->assertUnprocessable()->assertJsonValidationErrors('token');
+        $this->assertDatabaseCount('qr_uses', 1);
+        $this->assertDatabaseHas('audit_logs', ['actor_id' => $this->admin->id, 'action' => 'qr.scan']);
+    }
+
+    public function test_employee_can_only_display_own_qr_and_cannot_self_scan_or_skip_wfh_approval(): void
+    {
+        $device = $this->scannerDevice();
+        $token = $this->personalToken();
+        $this->assertDatabaseHas('qr_tokens', ['employee_id' => $this->employee, 'issued_by' => $this->worker->id]);
+        $this->postJson('/attendance/scan', ['token' => $token, 'device_id' => $device, 'input_method' => 'laptop_camera', 'event' => 'in'])->assertForbidden();
+        $this->postJson('/attendance/clock', ['mode' => 'wfo', 'event' => 'in', 'token' => $token])->assertUnprocessable()->assertJsonValidationErrors('mode');
+        $this->postJson('/attendance/clock', ['mode' => 'wfh', 'event' => 'in', 'work_date' => '2026-11-17'])->assertUnprocessable()->assertJsonValidationErrors('attendance');
+        $this->assertDatabaseCount('attendances', 0);
+    }
+
+    public function test_new_qr_invalidates_previous_qr_and_cannot_be_reassigned_by_request(): void
+    {
+        $old = $this->personalToken();
+        $url = $this->actingAs($this->worker)->postJson('/attendance/qr', ['employee_id' => $this->supervisorEmployee])->assertOk()->json('url');
+        parse_str(parse_url($url, PHP_URL_QUERY), $query);
+        $this->assertDatabaseHas('qr_tokens', ['token_hash' => hash('sha256', $query['employee_qr']), 'employee_id' => $this->employee]);
+        $this->actingAs($this->admin)->postJson('/attendance/scan', ['token' => $old, 'device_id' => $this->scannerDevice(), 'input_method' => 'laptop_camera', 'event' => 'in'])->assertUnprocessable()->assertJsonValidationErrors('token');
+    }
+
+    public function test_scanner_scope_is_enforced_before_returning_employee_information(): void
+    {
+        $token = $this->personalToken();
+        $device = $this->scannerDevice();
+        $this->grant($this->supervisor, 'attendance.scan', 'self');
+        $this->actingAs($this->supervisor)->postJson('/attendance/scan', ['token' => $token, 'device_id' => $device, 'input_method' => 'laptop_camera', 'event' => 'in'])->assertForbidden();
+        $this->assertDatabaseCount('qr_uses', 0);
+        $this->assertDatabaseCount('attendances', 0);
+    }
+
+    public function test_usb_scanner_and_phone_camera_record_in_and_out_for_the_qr_owner(): void
+    {
+        $device = $this->scannerDevice();
+        $phone = $this->scannerDevice('phone_camera');
+        $token = $this->personalToken();
+        $this->actingAs($this->admin)->postJson('/attendance/scan', ['token' => $token, 'device_id' => $device, 'input_method' => 'usb_scanner', 'event' => 'in'])->assertOk();
+        $this->travelTo(CarbonImmutable::parse('2026-11-17 17:00:00'));
+        $token = $this->personalToken();
+        $this->actingAs($this->admin)->postJson('/attendance/scan', ['token' => $token, 'device_id' => $phone, 'input_method' => 'phone_camera', 'event' => 'out'])->assertOk();
+        $this->assertDatabaseHas('attendances', ['employee_id' => $this->employee, 'clock_out' => '2026-11-17 17:00:00', 'source' => 'phone_camera']);
+        $this->assertDatabaseCount('attendances', 1);
+    }
+
+    public function test_inactive_or_wrong_type_devices_and_disabled_employee_cannot_scan(): void
+    {
+        $device = $this->scannerDevice();
+        $token = $this->personalToken();
+        $payload = ['token' => $token, 'device_id' => $device, 'input_method' => 'phone_camera', 'event' => 'in'];
+        $this->actingAs($this->admin)->postJson('/attendance/scan', $payload)->assertUnprocessable();
+        DB::table('devices')->where('id', $device)->update(['active' => false]);
+        $this->postJson('/attendance/scan', [...$payload, 'input_method' => 'laptop_camera'])->assertUnprocessable();
+        DB::table('devices')->where('id', $device)->update(['active' => true]);
+        $this->worker->forceFill(['active' => false])->save();
+        $this->postJson('/attendance/scan', [...$payload, 'input_method' => 'laptop_camera'])->assertUnprocessable();
+        $this->assertDatabaseCount('attendances', 0);
+    }
+
+    public function test_missing_schedule_does_not_consume_qr_and_fresh_qr_cannot_duplicate_clock_in(): void
+    {
+        $device = $this->scannerDevice();
+        $token = $this->personalToken();
+        $payload = ['token' => $token, 'device_id' => $device, 'input_method' => 'laptop_camera', 'event' => 'in'];
+        DB::table('schedules')->where('employee_id', $this->employee)->delete();
+        $this->actingAs($this->admin)->postJson('/attendance/scan', $payload)->assertUnprocessable();
+        $this->assertDatabaseCount('qr_uses', 0);
+        $this->post('/manage/schedules', ['employee_id' => $this->employee, 'shift_id' => $this->shift, 'work_date' => '2026-11-17'])->assertRedirect();
+        $this->postJson('/attendance/scan', $payload)->assertOk();
+        $token = $this->personalToken();
+        $this->actingAs($this->admin)->postJson('/attendance/scan', [...$payload, 'token' => $token])->assertUnprocessable();
+        $this->assertDatabaseCount('attendances', 1);
         $this->assertDatabaseCount('qr_uses', 1);
     }
 
-    public function test_employee_cannot_generate_office_qr_or_skip_wfh_approval(): void
+    public function test_qr_without_employee_binding_and_non_wfo_accounts_are_rejected(): void
     {
+        $token = str_repeat('b', 64);
+        $device = $this->scannerDevice();
+        DB::table('qr_tokens')->insert(['token_hash' => hash('sha256', $token), 'issued_by' => $this->admin->id, 'expires_at' => now()->addSeconds(15)]);
+        $this->actingAs($this->admin)->postJson('/attendance/scan', ['token' => $token, 'device_id' => $device, 'input_method' => 'laptop_camera', 'event' => 'in'])->assertUnprocessable();
+        DB::table('employees')->where('id', $this->employee)->update(['allow_wfo' => false]);
         $this->actingAs($this->worker)->postJson('/attendance/qr')->assertForbidden();
-        $this->postJson('/attendance/clock', ['mode' => 'wfh', 'event' => 'in', 'work_date' => '2026-11-17'])->assertUnprocessable()->assertJsonValidationErrors('attendance');
         $this->assertDatabaseCount('attendances', 0);
     }
 

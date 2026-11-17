@@ -9,6 +9,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
@@ -122,7 +123,7 @@ class ManageController extends Controller
                 case 'roles':
                     $data = $request->validate(['id' => 'nullable|exists:roles,id', 'name' => 'required|string|max:150', 'grants' => 'present|array', 'grants.*.permission' => ['required', Rule::in(Access::PERMISSIONS), 'distinct'], 'grants.*.scope' => ['required', Rule::in(Access::SCOPES)]], ['name.required' => 'Nama peran wajib diisi.', 'name.max' => 'Nama peran maksimal 150 karakter.', 'name.string' => 'Nama peran harus berupa teks.', 'id.exists' => 'Peran tidak ditemukan.', 'grants.present' => 'Pilih hak akses untuk peran ini.', 'grants.array' => 'Pilihan hak akses tidak valid.', 'grants.*.permission.in' => 'Hak akses yang dipilih tidak tersedia.', 'grants.*.permission.distinct' => 'Hak akses yang sama hanya boleh dipilih satu kali.', 'grants.*.permission.required' => 'Pilih hak akses yang ingin diberikan.', 'grants.*.scope.in' => 'Cakupan akses tidak tersedia.', 'grants.*.scope.required' => 'Pilih cakupan akses.']);
                     foreach ($data['grants'] as $g) {
-                        if (in_array($g['permission'], ['roles.manage', 'accounts.manage', 'organization.manage', 'kpi.manage', 'devices.manage', 'qr.display']) && $g['scope'] !== 'all') {
+                        if (in_array($g['permission'], ['roles.manage', 'accounts.manage', 'organization.manage', 'kpi.manage', 'devices.manage']) && $g['scope'] !== 'all') {
                             throw ValidationException::withMessages(['grants' => 'Pengelolaan organisasi, akun, peran, perangkat, target, dan tampilan QR berlaku untuk seluruh perusahaan. Izin melihat laporan diberikan secara terpisah.']);
                         }
                     }
@@ -208,11 +209,15 @@ class ManageController extends Controller
                     $data['definition'] = json_encode((array) $metric);
                     break;
                 case 'devices':
-                    $data = $request->validate(['name' => 'required|string|max:150', 'token' => ($id ? 'nullable' : 'required').'|string|min:40|max:200', 'active' => 'sometimes|boolean']);
-                    $data = ['name' => $data['name'], 'active' => $data['active'] ?? true, ...(! empty($data['token']) ? ['token_hash' => hash('sha256', $data['token'])] : [])];
+                    $data = $request->validate(['name' => 'required|string|max:150', 'type' => 'required|in:fingerprint,scanner,phone_camera', 'token' => ['nullable', 'string', 'min:40', 'max:200', Rule::requiredIf(! $id && $request->type === 'fingerprint')], 'active' => 'sometimes|boolean'], ['type.required' => 'Pilih jenis perangkat.', 'token.required' => 'Kunci koneksi diperlukan untuk perangkat sidik jari.']);
+                    if ($id && $before->type !== $data['type']) {
+                        throw ValidationException::withMessages(['type' => 'Jenis perangkat tidak dapat diganti. Daftarkan perangkat baru agar riwayat tetap jelas.']);
+                    }
+                    $data = ['name' => $data['name'], 'type' => $data['type'], 'active' => $data['active'] ?? true, ...(! empty($data['token']) ? ['token_hash' => hash('sha256', $data['token'])] : (! $id ? ['token_hash' => hash('sha256', Str::random(80))] : []))];
                     break;
                 case 'device-mappings':
                     $data = $request->validate(['device_id' => 'required|exists:devices,id', 'employee_id' => 'required|exists:employees,id', 'external_id' => 'required|string|max:100']);
+                    abort_unless(DB::table('devices')->where('id', $data['device_id'])->where('type', 'fingerprint')->exists(), 422, 'Pemetaan identitas hanya untuk perangkat sidik jari.');
                     DB::table('device_employees')->updateOrInsert(['device_id' => $data['device_id'], 'external_id' => $data['external_id']], $data);
                     break;
             }

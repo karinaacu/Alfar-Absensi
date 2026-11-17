@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
-import { BrowserQRCodeReader, type IScannerControls } from '@zxing/browser';
 import {
     Activity,
     ArrowDownToLine,
@@ -26,8 +25,11 @@ import {
     Users,
     X,
 } from '@lucide/vue';
-import QRCode from 'qrcode';
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, ref } from 'vue';
+import EmployeeQr from '@/components/alfar/EmployeeQr.vue';
+import AttendanceScanner, {
+    type ScanDevice,
+} from '@/components/alfar/AttendanceScanner.vue';
 import TechnicalHint from '@/components/alfar/TechnicalHint.vue';
 import {
     companyWidePermissions,
@@ -160,7 +162,7 @@ const props = defineProps<{
     attendances: Punch[];
     schedules: Row[];
     requests: ChangeRequest[];
-    devices: Row[];
+    devices: ScanDevice[];
     deviceMappings: Row[];
     audits: Row[];
     placements: Row[];
@@ -180,70 +182,162 @@ const modal = ref<{
     submit?: string;
 } | null>(null);
 const has = (permission: string) => props.permissions.includes(permission);
-const tabs = computed(() =>
+const menuGroups = computed(() =>
     [
         {
-            id: 'overview',
             label: 'Ringkasan',
-            icon: LayoutDashboard,
-            show: true,
+            items: [
+                {
+                    id: 'overview',
+                    label: 'Dasbor',
+                    icon: LayoutDashboard,
+                    show: true,
+                },
+            ],
         },
         {
-            id: 'employees',
-            label: 'Karyawan',
-            icon: Users,
-            show: props.employees.length > 0 || has('organization.manage'),
+            label: '1. Organisasi',
+            items: [
+                {
+                    id: 'departments',
+                    label: 'Divisi',
+                    icon: Building2,
+                    show: has('organization.manage'),
+                },
+                {
+                    id: 'positions',
+                    label: 'Jabatan',
+                    icon: Building2,
+                    show: has('organization.manage'),
+                },
+            ],
         },
         {
-            id: 'attendance',
-            label: 'Absensi & shift',
-            icon: CalendarDays,
-            show: true,
+            label: '2. Tim & hak akses',
+            items: [
+                {
+                    id: 'roles',
+                    label: 'Peran & hak akses',
+                    icon: ShieldCheck,
+                    show: has('roles.manage'),
+                },
+                {
+                    id: 'accounts',
+                    label: 'Akun karyawan',
+                    icon: Users,
+                    show: has('accounts.manage'),
+                },
+                {
+                    id: 'employees',
+                    label: 'Data karyawan',
+                    icon: Users,
+                    show:
+                        props.employees.length > 0 ||
+                        has('organization.manage'),
+                },
+            ],
         },
         {
-            id: 'kpi',
-            label: 'Target & realisasi',
-            icon: Target,
-            show: props.targets.length > 0 || has('kpi.manage'),
+            label: '3. Kehadiran',
+            items: [
+                {
+                    id: 'shifts',
+                    label: 'Shift kerja',
+                    icon: Clock3,
+                    show: has('organization.manage'),
+                },
+                {
+                    id: 'schedules',
+                    label: 'Jadwal karyawan',
+                    icon: CalendarDays,
+                    show: has('organization.manage'),
+                },
+                {
+                    id: 'devices',
+                    label: 'Perangkat absensi',
+                    icon: Fingerprint,
+                    show: has('devices.manage'),
+                },
+                {
+                    id: 'scanner',
+                    label: 'Pemindai QR kantor',
+                    icon: QrCode,
+                    show: has('attendance.scan'),
+                },
+                {
+                    id: 'my-attendance',
+                    label: 'Absensi saya',
+                    icon: QrCode,
+                    show: !!props.me,
+                },
+                {
+                    id: 'attendance',
+                    label: 'Rekap kehadiran',
+                    icon: CalendarDays,
+                    show: has('attendance.read') || has('attendance.manage'),
+                },
+                {
+                    id: 'requests',
+                    label: 'Pengajuan & persetujuan',
+                    icon: ClipboardCheck,
+                    show: !!props.me || has('attendance.approve'),
+                },
+            ],
         },
         {
-            id: 'reviews',
-            label: 'Review kinerja',
-            icon: ClipboardCheck,
-            show: props.reports.length > 0,
+            label: '4. Penilaian kinerja',
+            items: [
+                {
+                    id: 'metrics',
+                    label: 'Indikator per jabatan',
+                    icon: Target,
+                    show: has('kpi.manage'),
+                },
+                {
+                    id: 'periods',
+                    label: 'Periode penilaian',
+                    icon: CalendarDays,
+                    show: has('kpi.manage'),
+                },
+                {
+                    id: 'kpi',
+                    label: 'Target & realisasi',
+                    icon: Target,
+                    show: props.targets.length > 0 || has('kpi.manage'),
+                },
+                {
+                    id: 'reviews',
+                    label: 'Penilaian supervisor',
+                    icon: ClipboardCheck,
+                    show: props.reports.length > 0 || has('reviews.publish'),
+                },
+                {
+                    id: 'reports',
+                    label: 'Laporan & analisis',
+                    icon: ChartNoAxesCombined,
+                    show: has('reports.read'),
+                },
+            ],
         },
         {
-            id: 'reports',
-            label: 'Laporan & analisis',
-            icon: ChartNoAxesCombined,
-            show: has('reports.read'),
+            label: 'Pengawasan',
+            items: [
+                {
+                    id: 'audit',
+                    label: 'Riwayat aktivitas',
+                    icon: Activity,
+                    show: props.audits.length > 0,
+                },
+            ],
         },
-        {
-            id: 'organization',
-            label: 'Organisasi',
-            icon: Building2,
-            show: has('organization.manage') || has('kpi.manage'),
-        },
-        {
-            id: 'access',
-            label: 'Akun & hak akses',
-            icon: ShieldCheck,
-            show: has('accounts.manage') || has('roles.manage'),
-        },
-        {
-            id: 'devices',
-            label: 'Perangkat',
-            icon: Fingerprint,
-            show: has('devices.manage'),
-        },
-        {
-            id: 'audit',
-            label: 'Log audit',
-            icon: Activity,
-            show: props.audits.length > 0,
-        },
-    ].filter((t) => t.show),
+    ]
+        .map((group) => ({
+            ...group,
+            items: group.items.filter((item) => item.show),
+        }))
+        .filter((group) => group.items.length),
 );
+const tabs = computed(() => menuGroups.value.flatMap((group) => group.items));
 const period = computed(() =>
     props.periods.find((p) => p.id === props.periodId),
 );
@@ -684,11 +778,13 @@ function editMaster(entity: string, row: Row) {
         ],
         devices: [
             ['name', 'Nama perangkat'],
+            ['type', 'Jenis perangkat', 'select'],
             ['active', 'Perangkat aktif', 'checkbox'],
-            ['token', 'Ganti token (opsional)', 'password'],
+            ['token', 'Ganti kunci koneksi (opsional)', 'password'],
         ],
     };
     const options: Record<string, Field['options']> = {
+        type: deviceTypes,
         department_id: names(props.departments),
         position_id: names(props.positions),
         direction: [
@@ -795,108 +891,36 @@ function assignRoles() {
         { preserveScroll: true },
     );
 }
-const clock = useForm({
-    event: 'in',
-    mode: 'wfo',
-    token: new URLSearchParams(window.location.search).get('scan') || '',
-    work_date: '',
-});
-if (clock.token) tab.value = 'attendance';
-const qrImage = ref('');
-const qrError = ref('');
-const qrRunning = ref(false);
-const countdown = ref(15);
-let qrTimer: ReturnType<typeof setInterval> | undefined;
-let expiry = 0;
-async function refreshQr() {
-    const csrf = decodeURIComponent(
-        document.cookie
-            .split('; ')
-            .find((c) => c.startsWith('XSRF-TOKEN='))
-            ?.split('=')
-            .slice(1)
-            .join('=') || '',
-    );
-    try {
-        const response = await fetch('/attendance/qr', {
-            method: 'POST',
-            headers: { Accept: 'application/json', 'X-XSRF-TOKEN': csrf },
-            credentials: 'same-origin',
-        });
-        if (!response.ok)
-            throw new Error(
-                'QR tidak dapat diterbitkan. Periksa akses atau muat ulang halaman.',
-            );
-        const data = await response.json();
-        if (!qrRunning.value) return;
-        qrImage.value = await QRCode.toDataURL(data.url, {
-            width: 280,
-            margin: 2,
-            color: { dark: '#242343', light: '#ffffff' },
-        });
-        expiry = new Date(data.expires_at).getTime();
-        qrError.value = '';
-    } catch (e) {
-        qrError.value = e instanceof Error ? e.message : 'Terjadi kesalahan.';
-        stopQr();
-    }
+const clock = useForm({ event: 'in', mode: 'wfh', work_date: '' });
+const deviceTypes = [
+    { value: 'fingerprint', label: 'Sidik jari' },
+    { value: 'scanner', label: 'Pemindai QR — kamera laptop / alat scanner' },
+    { value: 'phone_camera', label: 'Kamera HP' },
+];
+const deviceTypeName = (type: unknown) =>
+    deviceTypes.find((d) => d.value === type)?.label || 'Sidik jari';
+function registerDevice() {
+    openForm('Daftarkan perangkat absensi', 'devices', [
+        field('name', 'Nama perangkat'),
+        field(
+            'type',
+            'Jenis perangkat',
+            'select',
+            true,
+            deviceTypes,
+            'scanner',
+        ),
+        {
+            ...field(
+                'token',
+                'Kunci koneksi sidik jari (khusus alat fingerprint)',
+                'password',
+                false,
+            ),
+            hint: 'Untuk sidik jari: minimal 40 karakter acak. Kamera dan scanner tidak memerlukan kunci.',
+        },
+    ]);
 }
-function startQr() {
-    qrRunning.value = true;
-    void refreshQr();
-    qrTimer = setInterval(() => {
-        countdown.value = Math.max(0, Math.ceil((expiry - Date.now()) / 1000));
-        if (expiry && countdown.value === 0) {
-            expiry = 0;
-            void refreshQr();
-        }
-    }, 250);
-}
-function stopQr() {
-    qrRunning.value = false;
-    qrImage.value = '';
-    if (qrTimer) clearInterval(qrTimer);
-}
-const video = ref<HTMLVideoElement | null>(null);
-const cameraError = ref('');
-const cameraRunning = ref(false);
-let cameraControls: IScannerControls | undefined;
-async function scanQr() {
-    cameraError.value = '';
-    cameraRunning.value = true;
-    try {
-        cameraControls = await new BrowserQRCodeReader().decodeFromVideoDevice(
-            undefined,
-            video.value!,
-            (result) => {
-                if (result) {
-                    try {
-                        const u = new URL(result.getText());
-                        if (u.origin !== window.location.origin)
-                            throw new Error();
-                        const token = u.searchParams.get('scan');
-                        if (!token || token.length !== 64) throw new Error();
-                        clock.token = token;
-                        clock.mode = 'wfo';
-                        cameraControls?.stop();
-                        cameraRunning.value = false;
-                    } catch {
-                        cameraError.value = 'QR bukan milik aplikasi ini.';
-                    }
-                }
-            },
-        );
-        if (!cameraRunning.value) cameraControls.stop();
-    } catch {
-        cameraError.value =
-            'Kamera tidak tersedia. Gunakan HTTPS dan izinkan kamera, atau buka QR melalui kamera ponsel.';
-        cameraRunning.value = false;
-    }
-}
-onBeforeUnmount(() => {
-    stopQr();
-    cameraControls?.stop();
-});
 </script>
 
 <template>
@@ -912,25 +936,32 @@ onBeforeUnmount(() => {
                 ></Link
             >
             <div class="workspace-label">WORKSPACE <span>ALFAR</span></div>
-            <p class="nav-caption">MENU UTAMA</p>
-            <nav>
-                <button
-                    v-for="item in tabs"
-                    :key="item.id"
-                    :class="{ active: tab === item.id }"
-                    @click="
-                        tab = item.id;
-                        query = '';
-                        selectedReport = null;
-                    "
+            <nav aria-label="Navigasi utama">
+                <section
+                    v-for="group in menuGroups"
+                    :key="group.label"
+                    class="sidebar-group"
                 >
-                    <component :is="item.icon" :size="19" />{{ item.label
-                    }}<span
-                        v-if="item.id === 'reviews' && pending"
-                        class="nav-count"
-                        >{{ pending }}</span
+                    <h2 class="nav-caption">{{ group.label }}</h2>
+                    <button
+                        v-for="item in group.items"
+                        :key="item.id"
+                        :class="{ active: tab === item.id }"
+                        :title="item.label"
+                        @click="
+                            tab = item.id;
+                            query = '';
+                            selectedReport = null;
+                        "
                     >
-                </button>
+                        <component :is="item.icon" :size="19" />{{ item.label
+                        }}<span
+                            v-if="item.id === 'reviews' && pending"
+                            class="nav-count"
+                            >{{ pending }}</span
+                        >
+                    </button>
+                </section>
             </nav>
             <div class="sidebar-bottom">
                 <div class="help-card">
@@ -1200,7 +1231,7 @@ onBeforeUnmount(() => {
                                 <button
                                     v-if="has('organization.manage')"
                                     class="primary"
-                                    @click="tab = 'organization'"
+                                    @click="tab = 'departments'"
                                 >
                                     Atur organisasi <ArrowRight :size="16" />
                                 </button>
@@ -1374,114 +1405,168 @@ onBeforeUnmount(() => {
                             jabatan.
                         </p>
                     </div>
+                    <section v-if="placements.length" class="panel">
+                        <div class="panel-heading">
+                            <h2>Riwayat penempatan</h2>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Karyawan</th>
+                                        <th>Jabatan</th>
+                                        <th>Mulai</th>
+                                        <th>Sampai</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="p in placements" :key="p.id">
+                                        <td>
+                                            {{
+                                                employeeName(
+                                                    Number(p.employee_id),
+                                                )
+                                            }}
+                                        </td>
+                                        <td>
+                                            {{
+                                                positions.find(
+                                                    (x) =>
+                                                        x.id === p.position_id,
+                                                )?.name
+                                            }}
+                                        </td>
+                                        <td>{{ p.starts_on }}</td>
+                                        <td>{{ p.ends_on || 'Sekarang' }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
                 </template>
 
-                <template v-if="tab === 'attendance'">
-                    <section class="panel attendance-actions">
-                        <div>
-                            <h2>Hari kerja Anda</h2>
-                            <p>
-                                WFO melalui QR kantor. WFH sesuai akses atau
-                                persetujuan.
-                            </p>
-                        </div>
-                        <button
-                            v-if="me"
-                            class="secondary"
-                            @click="requestChange"
-                        >
-                            <Plus :size="16" />Ajukan WFH / koreksi / izin</button
-                        ><button
-                            v-if="has('organization.manage')"
-                            class="secondary"
-                            @click="schedule"
-                        >
-                            Atur jadwal</button
-                        ><button
-                            v-if="has('qr.display')"
-                            class="primary"
-                            @click="qrRunning ? stopQr() : startQr()"
-                        >
-                            <QrCode :size="17" />{{
-                                qrRunning ? 'Tutup QR' : 'Tampilkan QR kantor'
-                            }}
-                        </button>
-                    </section>
-                    <div v-if="qrRunning || qrError" class="panel qr-panel">
-                        <h2>QR absensi WFO</h2>
-                        <img
-                            v-if="qrImage"
-                            :src="qrImage"
-                            alt="QR absensi kantor yang berlaku 15 detik"
-                        />
-                        <p>
-                            {{
-                                qrError ||
-                                `QR diperbarui dalam ${countdown} detik. Pindai dari akun karyawan.`
-                            }}
-                        </p>
-                    </div>
-                    <form
-                        v-if="me"
-                        class="panel clock-form"
-                        @submit.prevent="
-                            clock.post('/attendance/clock', {
-                                preserveScroll: true,
-                            })
-                        "
+                <template
+                    v-if="
+                        [
+                            'my-attendance',
+                            'scanner',
+                            'attendance',
+                            'requests',
+                            'schedules',
+                        ].includes(tab)
+                    "
+                >
+                    <section
+                        v-if="tab === 'my-attendance' && me"
+                        class="attendance-personal"
                     >
-                        <h3>Catat kehadiran</h3>
-                        <select v-model="clock.mode" aria-label="Mode kerja">
-                            <option value="wfo">WFO — QR kantor</option>
-                            <option value="wfh">Saya WFH</option></select
-                        ><select
-                            v-model="clock.event"
-                            aria-label="Jenis absensi"
-                        >
-                            <option value="in">Absen masuk</option>
-                            <option value="out">Absen keluar</option></select
-                        ><label
-                            >Tanggal kerja
-                            <input
-                                v-model="clock.work_date"
-                                type="date"
-                                required /></label
-                        ><template v-if="clock.mode === 'wfo'"
-                            ><button
-                                type="button"
-                                class="secondary"
-                                @click="scanQr"
-                            >
-                                <QrCode :size="17" />Pindai QR</button
-                            ><span v-if="clock.token" class="pill green"
-                                >QR terbaca</span
-                            ><video
-                                ref="video"
-                                :class="{ 'camera-hidden': !cameraRunning }"
-                                class="camera-video"
-                            />
-                            <p v-if="cameraError" class="error">
-                                {{ cameraError }}
-                            </p></template
-                        ><button
-                            class="primary"
-                            :disabled="
-                                clock.processing ||
-                                (clock.mode === 'wfo' && !clock.token)
+                        <EmployeeQr
+                            :name="
+                                String(
+                                    page.props.auth?.user?.name || 'Karyawan',
+                                )
+                            "
+                            :nik="me.nik"
+                            :allow-wfo="Boolean(me.allow_wfo)"
+                        />
+                        <form
+                            class="panel clock-form"
+                            @submit.prevent="
+                                clock.post('/attendance/clock', {
+                                    preserveScroll: true,
+                                })
                             "
                         >
-                            Catat
-                            {{ clock.event === 'in' ? 'masuk' : 'keluar' }}
+                            <h3>Saya WFH</h3>
+                            <p class="wfh-note">
+                                Akun dengan akses WFH dapat langsung absen. Jika
+                                belum memiliki akses, ajukan persetujuan
+                                terlebih dahulu.
+                            </p>
+                            <select
+                                v-model="clock.event"
+                                aria-label="Jenis absensi WFH"
+                            >
+                                <option value="in">Absen masuk WFH</option>
+                                <option value="out">
+                                    Absen pulang WFH
+                                </option></select
+                            ><label
+                                >Tanggal kerja<input
+                                    v-model="clock.work_date"
+                                    type="date"
+                                    required /></label
+                            ><button
+                                class="primary"
+                                :disabled="clock.processing"
+                            >
+                                Catat absensi WFH</button
+                            ><button
+                                class="secondary"
+                                type="button"
+                                @click="requestChange"
+                            >
+                                Ajukan WFH / koreksi / izin
+                            </button>
+                            <p
+                                v-for="error in clock.errors"
+                                :key="error"
+                                class="error"
+                            >
+                                {{ error }}
+                            </p>
+                        </form>
+                    </section>
+                    <template v-if="tab === 'scanner' && has('attendance.scan')"
+                        ><div class="info-banner">
+                            <QrCode :size="20" /><span
+                                >Gunakan kamera laptop dahulu. Scanner QR dan
+                                kamera HP juga tersedia sebagai pilihan
+                                perangkat.</span
+                            ><button
+                                v-if="has('devices.manage')"
+                                class="text-button"
+                                @click="registerDevice"
+                            >
+                                Daftarkan perangkat
+                            </button>
+                        </div>
+                        <AttendanceScanner :devices="devices"
+                    /></template>
+                    <section
+                        v-if="tab === 'requests' && me"
+                        class="panel attendance-actions"
+                    >
+                        <div>
+                            <h2>Pengajuan saya</h2>
+                            <p>
+                                Ajukan WFH, cuti, izin, atau koreksi absensi
+                                kepada atasan.
+                            </p>
+                        </div>
+                        <button class="primary" @click="requestChange">
+                            Buat pengajuan
                         </button>
-                        <p
-                            v-for="error in clock.errors"
-                            :key="error"
-                            class="error"
-                        >
-                            {{ error }}
-                        </p>
-                    </form>
-                    <section class="panel">
+                    </section>
+                    <section
+                        v-if="tab === 'schedules' && has('organization.manage')"
+                        class="panel attendance-actions"
+                    >
+                        <div>
+                            <h2>Jadwal kerja karyawan</h2>
+                            <p>
+                                Lengkapi divisi, jabatan, akun, profil karyawan,
+                                dan shift sebelum menetapkan jadwal.
+                            </p>
+                        </div>
+                        <button class="primary" @click="schedule">
+                            Tetapkan jadwal
+                        </button>
+                    </section>
+                    <section
+                        v-if="['attendance', 'my-attendance'].includes(tab)"
+                        class="panel"
+                    >
                         <div class="panel-heading">
                             <div>
                                 <h2>Catatan kehadiran</h2>
@@ -1552,7 +1637,7 @@ onBeforeUnmount(() => {
                             </table>
                         </div>
                     </section>
-                    <section class="panel">
+                    <section v-if="tab === 'requests'" class="panel">
                         <div class="panel-heading">
                             <div>
                                 <h2>Pengajuan karyawan</h2>
@@ -1624,7 +1709,10 @@ onBeforeUnmount(() => {
                             </table>
                         </div>
                     </section>
-                    <section class="panel">
+                    <section
+                        v-if="['schedules', 'my-attendance'].includes(tab)"
+                        class="panel"
+                    >
                         <div class="panel-heading">
                             <h2>Jadwal kerja</h2>
                             <span class="muted"
@@ -2279,17 +2367,30 @@ onBeforeUnmount(() => {
                     </div>
                 </template>
 
-                <template v-if="tab === 'organization'">
+                <template
+                    v-if="
+                        [
+                            'departments',
+                            'positions',
+                            'shifts',
+                            'metrics',
+                            'periods',
+                        ].includes(tab)
+                    "
+                >
                     <div class="info-banner">
                         <Building2 :size="20" /><span
-                            >Mulai dari divisi → jabatan → akun → karyawan →
-                            shift & jadwal → template KPI → periode &
-                            target.</span
+                            >Ikuti urutan menu: divisi → jabatan → peran → akun
+                            → karyawan → shift → jadwal → perangkat → indikator
+                            → periode → target.</span
                         >
                     </div>
                     <div class="master-grid">
                         <section
-                            v-if="has('organization.manage')"
+                            v-if="
+                                tab === 'departments' &&
+                                has('organization.manage')
+                            "
                             class="panel"
                         >
                             <div class="panel-heading">
@@ -2328,7 +2429,10 @@ onBeforeUnmount(() => {
                             </p>
                         </section>
                         <section
-                            v-if="has('organization.manage')"
+                            v-if="
+                                tab === 'positions' &&
+                                has('organization.manage')
+                            "
                             class="panel"
                         >
                             <div class="panel-heading">
@@ -2381,7 +2485,9 @@ onBeforeUnmount(() => {
                             </p>
                         </section>
                         <section
-                            v-if="has('organization.manage')"
+                            v-if="
+                                tab === 'shifts' && has('organization.manage')
+                            "
                             class="panel"
                         >
                             <div class="panel-heading">
@@ -2440,7 +2546,10 @@ onBeforeUnmount(() => {
                                 Tetapkan jadwal <ArrowRight :size="15" />
                             </button>
                         </section>
-                        <section v-if="has('kpi.manage')" class="panel">
+                        <section
+                            v-if="tab === 'periods' && has('kpi.manage')"
+                            class="panel"
+                        >
                             <div class="panel-heading">
                                 <h2>Periode penilaian</h2>
                                 <button
@@ -2502,7 +2611,10 @@ onBeforeUnmount(() => {
                             </button>
                         </section>
                     </div>
-                    <section v-if="has('kpi.manage')" class="panel">
+                    <section
+                        v-if="tab === 'metrics' && has('kpi.manage')"
+                        class="panel"
+                    >
                         <div class="panel-heading">
                             <div>
                                 <h2>Template KPI per jabatan</h2>
@@ -2619,48 +2731,13 @@ onBeforeUnmount(() => {
                             </table>
                         </div>
                     </section>
-                    <section v-if="placements.length" class="panel">
-                        <div class="panel-heading">
-                            <h2>Riwayat penempatan</h2>
-                        </div>
-                        <div class="table-wrap">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Karyawan</th>
-                                        <th>Jabatan</th>
-                                        <th>Mulai</th>
-                                        <th>Sampai</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr v-for="p in placements" :key="p.id">
-                                        <td>
-                                            {{
-                                                employeeName(
-                                                    Number(p.employee_id),
-                                                )
-                                            }}
-                                        </td>
-                                        <td>
-                                            {{
-                                                positions.find(
-                                                    (x) =>
-                                                        x.id === p.position_id,
-                                                )?.name
-                                            }}
-                                        </td>
-                                        <td>{{ p.starts_on }}</td>
-                                        <td>{{ p.ends_on || 'Sekarang' }}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </section>
                 </template>
 
-                <template v-if="tab === 'access'">
-                    <section v-if="has('accounts.manage')" class="panel">
+                <template v-if="['accounts', 'roles'].includes(tab)">
+                    <section
+                        v-if="tab === 'accounts' && has('accounts.manage')"
+                        class="panel"
+                    >
                         <div class="panel-heading">
                             <div>
                                 <h2>Akun internal</h2>
@@ -2729,7 +2806,10 @@ onBeforeUnmount(() => {
                             </table>
                         </div>
                     </section>
-                    <section v-if="has('roles.manage')" class="panel">
+                    <section
+                        v-if="tab === 'roles' && has('roles.manage')"
+                        class="panel"
+                    >
                         <div class="panel-heading">
                             <div>
                                 <h2>Peran dan cakupan akses</h2>
@@ -2770,7 +2850,7 @@ onBeforeUnmount(() => {
                         </p>
                     </section>
                     <form
-                        v-if="has('roles.manage')"
+                        v-if="tab === 'roles' && has('roles.manage')"
                         class="panel role-assignment"
                         @submit.prevent="assignRoles"
                     >
@@ -2803,36 +2883,22 @@ onBeforeUnmount(() => {
                 <template v-if="tab === 'devices'">
                     <div class="info-banner">
                         <Fingerprint :size="21" /><span
-                            >Endpoint fingerprint siap menerima event WFO.
-                            Koneksi alat fisik memerlukan adapter sesuai
-                            merek/model.</span
+                            >Daftarkan sidik jari, pemindai QR (kamera laptop
+                            atau scanner), atau kamera HP. Pilihan sidik jari
+                            memerlukan koneksi sesuai merek alat.</span
                         >
                     </div>
                     <section class="panel">
                         <div class="panel-heading">
                             <div>
-                                <h2>Perangkat fingerprint</h2>
+                                <h2>Perangkat absensi</h2>
                                 <p>
-                                    Token disimpan sebagai hash dan hanya
-                                    dikirim melalui HTTPS.
+                                    Untuk tahap awal, daftarkan kamera laptop
+                                    sebagai Pemindai QR. Kunci koneksi hanya
+                                    diperlukan untuk alat sidik jari.
                                 </p>
                             </div>
-                            <button
-                                class="primary"
-                                @click="
-                                    openForm('Daftarkan perangkat', 'devices', [
-                                        field('name', 'Nama perangkat'),
-                                        {
-                                            ...field(
-                                                'token',
-                                                'Token acak perangkat',
-                                                'password',
-                                            ),
-                                            hint: 'Minimal 40 karakter acak. Simpan token asli di adapter perangkat.',
-                                        },
-                                    ])
-                                "
-                            >
+                            <button class="primary" @click="registerDevice()">
                                 <Plus :size="16" />Perangkat
                             </button>
                         </div>
@@ -2841,10 +2907,12 @@ onBeforeUnmount(() => {
                             :key="d.id"
                             class="master-row"
                         >
-                            <Fingerprint :size="20" /><strong>{{
-                                d.name
-                            }}</strong
-                            ><span class="pill green">{{
+                            <Fingerprint :size="20" />
+                            <div>
+                                <strong>{{ d.name }}</strong
+                                ><small>{{ deviceTypeName(d.type) }}</small>
+                            </div>
+                            <span class="pill green">{{
                                 d.active ? 'Aktif' : 'Nonaktif'
                             }}</span
                             ><button
@@ -2870,7 +2938,13 @@ onBeforeUnmount(() => {
                                                 'Perangkat',
                                                 'select',
                                                 true,
-                                                names(devices),
+                                                names(
+                                                    devices.filter(
+                                                        (d) =>
+                                                            d.type ===
+                                                            'fingerprint',
+                                                    ),
+                                                ),
                                             ),
                                             field(
                                                 'employee_id',

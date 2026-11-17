@@ -5,7 +5,7 @@ export const permissionLabels: Record<string, string> = {
     'attendance.read': 'Lihat catatan kehadiran',
     'attendance.manage': 'Impor data absensi',
     'attendance.approve': 'Setujui pengajuan WFH, izin, dan koreksi absensi',
-    'qr.display': 'Tampilkan kode QR absensi kantor',
+    'attendance.scan': 'Pindai QR karyawan untuk mencatat absensi',
     'devices.manage': 'Kelola perangkat sidik jari',
     'kpi.manage': 'Atur periode, indikator, dan target kinerja',
     'kpi.submit': 'Isi realisasi kinerja',
@@ -23,7 +23,6 @@ export const companyWidePermissions = [
     'organization.manage',
     'accounts.manage',
     'roles.manage',
-    'qr.display',
     'devices.manage',
     'kpi.manage',
 ];

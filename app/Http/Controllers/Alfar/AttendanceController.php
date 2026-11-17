@@ -18,36 +18,65 @@ class AttendanceController extends Controller
 {
     public function qr(Request $r, Access $a): JsonResponse
     {
-        $a->authorize($r->user(), 'qr.display');
+        $employee = $a->employee($r->user());
+        abort_unless($employee !== null, 422, 'Akun belum terhubung dengan profil karyawan.');
+        abort_unless($r->user()->active && $employee->allow_wfo, 403, 'Akun tidak memiliki akses absensi WFO.');
         $token = Str::random(64);
         $expires = now()->addSeconds(15);
-        DB::table('qr_tokens')->insert(['token_hash' => hash('sha256', $token), 'issued_by' => $r->user()->id, 'expires_at' => $expires, 'created_at' => now(), 'updated_at' => now()]);
+        DB::transaction(function () use ($r, $employee, $token, $expires) {
+            DB::table('employees')->where('id', $employee->id)->lockForUpdate()->first();
+            // Retain used tokens; discard old unused images to keep rotation storage bounded.
+            DB::table('qr_tokens')->where('employee_id', $employee->id)->where('expires_at', '<', now()->subDay())->whereNotExists(fn ($q) => $q->selectRaw('1')->from('qr_uses')->whereColumn('qr_uses.qr_token_id', 'qr_tokens.id'))->delete();
+            // Only the newest QR for this employee remains valid, including across tabs.
+            DB::table('qr_tokens')->where('employee_id', $employee->id)->where('expires_at', '>', now())->update(['expires_at' => now()]);
+            DB::table('qr_tokens')->insert(['employee_id' => $employee->id, 'token_hash' => hash('sha256', $token), 'issued_by' => $r->user()->id, 'expires_at' => $expires, 'created_at' => now(), 'updated_at' => now()]);
+        });
 
-        return response()->json(['token' => $token, 'expires_at' => $expires->toIso8601String(), 'url' => url('/dashboard?scan='.$token)])->header('Cache-Control', 'no-store');
+        return response()->json(['expires_at' => $expires->toIso8601String(), 'url' => url('/dashboard?employee_qr='.$token), 'last_attendance' => DB::table('attendances')->where('employee_id', $employee->id)->select('work_date', 'clock_in', 'clock_out')->orderByDesc('work_date')->first()])->header('Cache-Control', 'no-store');
+    }
+
+    public function scan(Request $r, Access $a, Attendance $attendance): JsonResponse
+    {
+        $a->authorize($r->user(), 'attendance.scan');
+        $data = $r->validate(['token' => 'required|string|size:64', 'event' => 'required|in:in,out', 'device_id' => 'required|integer|exists:devices,id', 'work_date' => 'nullable|date_format:Y-m-d', 'input_method' => 'required|in:laptop_camera,usb_scanner,phone_camera']);
+
+        return DB::transaction(function () use ($r, $a, $attendance, $data) {
+            $device = DB::table('devices')->where('id', $data['device_id'])->lockForUpdate()->first();
+            $expectedType = $data['input_method'] === 'phone_camera' ? 'phone_camera' : 'scanner';
+            abort_unless($device && $device->active && $device->type === $expectedType, 422, 'Pilih perangkat pemindai aktif yang sesuai dengan cara pemindaian.');
+            // Read the immutable owner first; lock employee before token to match issuance order.
+            $owner = DB::table('qr_tokens')->where('token_hash', hash('sha256', $data['token']))->first();
+            if (! $owner?->employee_id) {
+                throw ValidationException::withMessages(['token' => 'QR karyawan tidak valid. Buka QR pribadi terbaru.']);
+            }
+            $a->authorize($r->user(), 'attendance.scan', $owner->employee_id);
+            $employee = DB::table('employees')->where('id', $owner->employee_id)->lockForUpdate()->first();
+            $qr = DB::table('qr_tokens')->where('id', $owner->id)->lockForUpdate()->first();
+            if (! $qr || CarbonImmutable::parse($qr->expires_at)->lte(now())) {
+                throw ValidationException::withMessages(['token' => 'QR sudah kedaluwarsa. Tampilkan QR terbaru dari akun karyawan.']);
+            }
+            $user = DB::table('users')->where('id', $employee->user_id)->first();
+            abort_unless($user && $user->active && $qr->issued_by === $user->id, 422, 'QR tidak lagi terhubung ke akun karyawan aktif.');
+            if (DB::table('qr_uses')->where('qr_token_id', $qr->id)->exists()) {
+                throw ValidationException::withMessages(['token' => 'QR ini sudah digunakan.']);
+            }
+            $record = $attendance->record($employee->id, $data['event'], 'wfo', $data['input_method'], CarbonImmutable::now(), $data['work_date'] ?? null);
+            DB::table('qr_uses')->insert(['qr_token_id' => $qr->id, 'employee_id' => $employee->id, 'event' => $data['event']]);
+            Access::audit($r->user()->id, 'qr.scan', 'attendance:'.$record->id, null, ['device_id' => $device->id, 'employee_id' => $employee->id, 'event' => $data['event'], 'input_method' => $data['input_method']]);
+
+            return response()->json(['message' => 'Absen '.($data['event'] === 'in' ? 'masuk' : 'pulang').' berhasil dicatat.', 'employee_name' => $user->name, 'nik' => $employee->nik, 'event' => $data['event'], 'work_date' => $record->work_date, 'recorded_at' => $data['event'] === 'in' ? $record->clock_in : $record->clock_out]);
+        });
     }
 
     public function clock(Request $r, Access $a, Attendance $attendance): RedirectResponse
     {
-        $data = $r->validate(['event' => 'required|in:in,out', 'mode' => 'required|in:wfo,wfh', 'token' => 'nullable|string|size:64', 'work_date' => 'nullable|date_format:Y-m-d']);
+        // WFO can only be recorded by the authorized scanner or fingerprint device.
+        $data = $r->validate(['event' => 'required|in:in,out', 'mode' => 'required|in:wfh', 'work_date' => 'nullable|date_format:Y-m-d']);
         $employee = $a->employee($r->user());
         abort_unless($employee !== null, 422, 'Akun belum terhubung dengan profil karyawan.');
-        DB::transaction(function () use ($data, $employee, $attendance) {
-            // Serialize all punches per employee, including two different QR tokens.
-            DB::table('employees')->where('id', $employee->id)->lockForUpdate()->first();
-            if ($data['mode'] === 'wfo') {
-                $qr = DB::table('qr_tokens')->where('token_hash', hash('sha256', $data['token'] ?? ''))->lockForUpdate()->first();
-                if (! $qr || CarbonImmutable::parse($qr->expires_at)->lte(now())) {
-                    throw ValidationException::withMessages(['token' => 'QR tidak valid atau kedaluwarsa. Pindai QR terbaru.']);
-                }
-                if (DB::table('qr_uses')->where('qr_token_id', $qr->id)->where('employee_id', $employee->id)->exists()) {
-                    throw ValidationException::withMessages(['token' => 'QR ini sudah digunakan oleh akun Anda.']);
-                }
-                DB::table('qr_uses')->insert(['qr_token_id' => $qr->id, 'employee_id' => $employee->id, 'event' => $data['event']]);
-            }
-            $attendance->record($employee->id, $data['event'], $data['mode'], $data['mode'] === 'wfo' ? 'qr' : 'web', CarbonImmutable::now(), $data['work_date'] ?? null);
-        });
+        $attendance->record($employee->id, $data['event'], 'wfh', 'web', CarbonImmutable::now(), $data['work_date'] ?? null);
 
-        return back()->with('success', 'Absen '.($data['event'] === 'in' ? 'masuk' : 'keluar').' berhasil dicatat.');
+        return back()->with('success', 'Absensi WFH berhasil dicatat.');
     }
 
     public function requestChange(Request $r, Access $a): RedirectResponse
@@ -164,7 +193,7 @@ class AttendanceController extends Controller
     {
         $token = $r->bearerToken();
         abort_unless(is_string($token) && $token !== '', 401);
-        $device = DB::table('devices')->where('token_hash', hash('sha256', $token))->where('active', true)->first();
+        $device = DB::table('devices')->where('token_hash', hash('sha256', $token))->where('active', true)->where('type', 'fingerprint')->first();
         abort_unless($device !== null, 401);
         $data = $r->validate(['external_event_id' => 'required|string|max:150', 'external_id' => 'required|string|max:100', 'event' => 'required|in:in,out', 'occurred_at' => 'required|date_format:Y-m-d H:i:s', 'work_date' => 'required|date_format:Y-m-d']);
         abort_if(CarbonImmutable::parse($data['occurred_at'])->gt(now()->addMinutes(2)), 422, 'Waktu perangkat berada di masa depan.');
