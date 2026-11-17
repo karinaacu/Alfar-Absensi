@@ -414,4 +414,20 @@ class AlfarWorkflowTest extends TestCase
         $this->grant($this->supervisor, 'reviews.publish', 'self');
         $this->actingAs($this->supervisor)->postJson('/reviews', ['employee_id' => (string) $this->supervisorEmployee, 'period_id' => $this->period, 'analysis' => 'x', 'follow_up' => 'y', 'due_on' => '2026-12-01', 'publish' => true])->assertForbidden();
     }
+
+    public function test_qr_rate_limit_is_separate_from_scanning_and_other_employees(): void
+    {
+        $this->grant($this->supervisor, 'attendance.scan', 'all');
+        $this->actingAs($this->supervisor);
+        for ($i = 0; $i < 13; $i++) {
+            $this->postJson('/attendance/scan', [])->assertUnprocessable();
+        }
+        $this->postJson('/attendance/qr')->assertOk();
+        $this->actingAs($this->worker);
+        for ($i = 0; $i < 12; $i++) {
+            $this->postJson('/attendance/qr')->assertOk();
+        }
+        $this->postJson('/attendance/qr')->assertTooManyRequests()->assertHeader('Retry-After');
+        $this->actingAs($this->supervisor)->postJson('/attendance/qr')->assertOk();
+    }
 }

@@ -19,7 +19,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/reviews', [WorkController::class, 'review']);
     Route::post('/reviews/{id}/respond', [WorkController::class, 'respond']);
     Route::get('/evidence/{id}', [WorkController::class, 'evidence']);
-    Route::post('/attendance/qr', [AttendanceController::class, 'qr'])->middleware('throttle:12,1');
+    Route::post('/attendance/qr', [AttendanceController::class, 'qr'])->middleware('throttle:attendance-qr');
     Route::post('/attendance/scan', [AttendanceController::class, 'scan'])->middleware('throttle:120,1');
     Route::post('/attendance/clock', [AttendanceController::class, 'clock'])->middleware('throttle:12,1');
     Route::post('/attendance/requests', [AttendanceController::class, 'requestChange']);

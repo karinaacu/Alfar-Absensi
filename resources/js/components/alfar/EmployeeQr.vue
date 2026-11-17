@@ -10,14 +10,37 @@ const lastAttendance = ref<{
 } | null>(null);
 const error = ref('');
 const seconds = ref(15);
+const retrySeconds = ref(0);
 const active = ref(false);
-let expires = 0;
-let loading = false;
-let timer: ReturnType<typeof setInterval> | undefined;
+const loading = ref(false);
+const duration = 15_000;
+let disposed = false;
+let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+let countdownTimer: ReturnType<typeof setInterval> | undefined;
+let request: AbortController | undefined;
+function clearTimers() {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    if (countdownTimer) clearInterval(countdownTimer);
+    refreshTimer = undefined;
+    countdownTimer = undefined;
+}
+function waitBeforeRetry(waitSeconds: number) {
+    const deadline = performance.now() + waitSeconds * 1000;
+    retrySeconds.value = waitSeconds;
+    countdownTimer = setInterval(() => {
+        retrySeconds.value = Math.max(
+            0,
+            Math.ceil((deadline - performance.now()) / 1000),
+        );
+        if (retrySeconds.value === 0) clearTimers();
+    }, 1000);
+}
 async function refresh() {
-    if (loading || !active.value) return;
-    loading = true;
+    if (disposed || loading.value || !active.value) return;
+    clearTimers();
+    loading.value = true;
     image.value = '';
+    request = new AbortController();
     try {
         const csrf = decodeURIComponent(
             document.cookie
@@ -31,7 +54,20 @@ async function refresh() {
             method: 'POST',
             headers: { Accept: 'application/json', 'X-XSRF-TOKEN': csrf },
             credentials: 'same-origin',
+            signal: request.signal,
         });
+        if (response.status === 429) {
+            const value = Number(response.headers.get('Retry-After'));
+            const wait =
+                Number.isFinite(value) && value > 0
+                    ? Math.min(3600, Math.ceil(value))
+                    : 60;
+            active.value = false;
+            error.value =
+                'Permintaan QR terlalu sering. Tunggu hitungan selesai sebelum menampilkan ulang QR.';
+            waitBeforeRetry(wait);
+            return;
+        }
         const data = await response.json();
         if (!response.ok)
             throw new Error(
@@ -42,39 +78,48 @@ async function refresh() {
             margin: 2,
             color: { dark: '#242343', light: '#ffffff' },
         });
-        if (!active.value) return;
+        if (disposed || !active.value) return;
         image.value = picture;
         lastAttendance.value = data.last_attendance;
-        expires = new Date(data.expires_at).getTime();
-        seconds.value = Math.max(0, Math.ceil((expires - Date.now()) / 1000));
+        seconds.value = 15;
         error.value = '';
+        // Monotonic time is unaffected by differences between the device and server clocks.
+        // Only this single timeout requests the next QR; countdown updates never make requests.
+        const deadline = performance.now() + duration;
+        countdownTimer = setInterval(() => {
+            seconds.value = Math.max(
+                0,
+                Math.ceil((deadline - performance.now()) / 1000),
+            );
+        }, 1000);
+        refreshTimer = setTimeout(() => {
+            void refresh();
+        }, duration);
     } catch (e) {
+        if (disposed) return;
         error.value = e instanceof Error ? e.message : 'QR tidak dapat dibuat.';
         active.value = false;
     } finally {
-        loading = false;
+        loading.value = false;
     }
 }
 function start() {
-    if (timer) clearInterval(timer);
+    if (disposed || loading.value || active.value || retrySeconds.value > 0)
+        return;
+    clearTimers();
     active.value = true;
     error.value = '';
+    seconds.value = 15;
     void refresh();
-    timer = setInterval(() => {
-        if (!active.value) return;
-        seconds.value = Math.max(0, Math.ceil((expires - Date.now()) / 1000));
-        if (expires && seconds.value === 0) {
-            expires = 0;
-            void refresh();
-        }
-    }, 250);
 }
 onMounted(() => {
     if (props.allowWfo) start();
 });
 onBeforeUnmount(() => {
+    disposed = true;
     active.value = false;
-    if (timer) clearInterval(timer);
+    clearTimers();
+    request?.abort();
 });
 </script>
 <template>
@@ -122,8 +167,17 @@ onBeforeUnmount(() => {
                     >Diperbarui dalam {{ seconds }} detik</span
                 >
                 <p v-if="error" class="error">{{ error }}</p>
-                <button v-if="!active" class="primary" @click="start">
-                    Tampilkan ulang QR
+                <button
+                    v-if="!active"
+                    class="primary"
+                    :disabled="loading || retrySeconds > 0"
+                    @click="start"
+                >
+                    {{
+                        retrySeconds > 0
+                            ? `Tunggu ${retrySeconds} detik`
+                            : 'Tampilkan ulang QR'
+                    }}
                 </button>
                 <p class="qr-instruction">
                     QR hanya berlaku 15 detik dan hanya untuk akun Anda. Jam
