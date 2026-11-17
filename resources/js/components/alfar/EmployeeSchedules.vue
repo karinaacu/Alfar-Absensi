@@ -290,7 +290,7 @@ function remove(from: string, to: string) {
                                     (p) => p.work_date === s.work_date,
                                 )
                             "
-                            class="text-button"
+                            class="text-button danger-button"
                             @click="remove(s.work_date, s.work_date)"
                         >
                             Hapus
@@ -370,7 +370,7 @@ function remove(from: string, to: string) {
                     </p>
                     <button
                         v-if="canManage && schedules.length"
-                        class="text-button"
+                        class="text-button danger-button"
                         @click="remove(bounds.from, bounds.to)"
                     >
                         Hapus jadwal pada periode ini

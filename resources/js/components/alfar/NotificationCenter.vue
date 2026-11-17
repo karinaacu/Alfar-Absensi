@@ -99,7 +99,7 @@ onMounted(() => {
                 >
                     Tandai semua dibaca</button
                 ><button
-                    class="secondary"
+                    class="secondary danger-button"
                     :disabled="working || !items.length"
                     @click="deleteAll"
                 >
@@ -135,7 +135,7 @@ onMounted(() => {
                 >
                     Tandai dibaca</button
                 ><button
-                    class="text-button"
+                    class="text-button danger-button"
                     :disabled="working"
                     :aria-label="`Hapus notifikasi ${item.title}`"
                     @click="act(`/notifications/${item.id}`, 'DELETE')"

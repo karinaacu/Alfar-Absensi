@@ -17,7 +17,7 @@ import {
     LogOut,
     Plus,
     QrCode,
-    Search,
+    Menu,
     Settings2,
     ShieldCheck,
     Target,
@@ -25,7 +25,8 @@ import {
     Users,
     X,
 } from '@lucide/vue';
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { useMediaQuery } from '@vueuse/core';
 import NotificationCenter from '@/components/alfar/NotificationCenter.vue';
 import {
     unreadNotifications,
@@ -182,6 +183,17 @@ const props = defineProps<{
 }>();
 const page = usePage();
 const tab = ref('overview');
+const sidebarOpen = ref(false);
+const compactNavigation = useMediaQuery('(max-width: 900px)');
+const navigationToggle = ref<HTMLButtonElement | null>(null);
+function closeNavigation() {
+    if (sidebarOpen.value) navigationToggle.value?.focus();
+    sidebarOpen.value = false;
+}
+watch(tab, closeNavigation);
+watch(compactNavigation, () => {
+    sidebarOpen.value = false;
+});
 const query = ref('');
 const department = ref('');
 const shiftFilter = ref('');
@@ -984,8 +996,36 @@ function removeItem(entity: string, id: number, name: string) {
 <template>
     <Head :title="title" />
     <div class="alfar-app">
-        <aside class="alfar-sidebar">
-            <Link href="/dashboard" class="alfar-brand"
+        <button
+            v-if="sidebarOpen && compactNavigation"
+            class="navigation-backdrop"
+            tabindex="-1"
+            aria-label="Tutup navigasi"
+            @click="closeNavigation"
+        />
+        <aside
+            id="alfar-navigation"
+            class="alfar-sidebar"
+            :class="{ 'navigation-open': sidebarOpen }"
+            @keydown.esc.stop.prevent="closeNavigation"
+        >
+            <button
+                ref="navigationToggle"
+                type="button"
+                class="navigation-toggle"
+                :aria-expanded="sidebarOpen"
+                aria-controls="alfar-navigation-menu"
+                :aria-label="
+                    sidebarOpen ? 'Tutup menu navigasi' : 'Buka menu navigasi'
+                "
+                @click="sidebarOpen = !sidebarOpen"
+            >
+                <X v-if="sidebarOpen" :size="20" /><Menu
+                    v-else
+                    :size="20"
+                /><span v-if="sidebarOpen">Tutup menu</span>
+            </button>
+            <Link href="/dashboard" class="alfar-brand" @click="closeNavigation"
                 ><span class="brand-icon">a<span>•</span></span
                 ><span
                     >alfar<span class="brand-sub"
@@ -994,7 +1034,7 @@ function removeItem(entity: string, id: number, name: string) {
                 ></Link
             >
             <div class="workspace-label">WORKSPACE <span>ALFAR</span></div>
-            <nav aria-label="Navigasi utama">
+            <nav id="alfar-navigation-menu" aria-label="Navigasi utama">
                 <section
                     v-for="group in menuGroups"
                     :key="group.label"
@@ -1027,14 +1067,21 @@ function removeItem(entity: string, id: number, name: string) {
                     ><strong>Tumbuh bersama Alfar</strong>
                     <p>Target yang jelas.<br />Kontribusi yang berarti.</p>
                 </div>
-                <Link href="/password/change"
+                <Link href="/password/change" @click="closeNavigation"
                     ><Settings2 :size="17" /> Keamanan akun</Link
-                ><Link href="/logout" method="post" as="button"
+                ><Link
+                    href="/logout"
+                    @click="closeNavigation"
+                    method="post"
+                    as="button"
                     ><LogOut :size="17" /> Keluar</Link
                 >
             </div>
         </aside>
-        <div class="alfar-main">
+        <div
+            class="alfar-main"
+            :inert="sidebarOpen && compactNavigation ? true : undefined"
+        >
             <header class="alfar-header">
                 <div class="breadcrumb">
                     Workspace <span>/</span> <strong>{{ title }}</strong>
@@ -1437,7 +1484,7 @@ function removeItem(entity: string, id: number, name: string) {
                             </button>
                             <button
                                 v-if="has('organization.manage')"
-                                class="text-button"
+                                class="text-button danger-button"
                                 @click="removeItem('employees', e.id, e.name)"
                             >
                                 Hapus karyawan
@@ -1978,12 +2025,10 @@ function removeItem(entity: string, id: number, name: string) {
 
                 <template v-if="tab === 'reviews' || tab === 'reports'">
                     <div class="toolbar">
-                        <div class="search-input">
-                            <Search :size="17" /><input
-                                v-model="query"
-                                placeholder="Cari laporan karyawan…"
-                            />
-                        </div>
+                        <SearchInput
+                            v-model="query"
+                            placeholder="Cari laporan karyawan…"
+                        />
                         <AppSelect
                             v-model="filter"
                             :options="[
@@ -2510,7 +2555,7 @@ function removeItem(entity: string, id: number, name: string) {
                                 >
                                     Ubah</button
                                 ><button
-                                    class="text-button"
+                                    class="text-button danger-button"
                                     @click="
                                         removeItem('positions', p.id, p.name)
                                     "
@@ -2838,6 +2883,7 @@ function removeItem(entity: string, id: number, name: string) {
                             </button>
                         </div>
                         <SearchInput
+                            class="account-search"
                             v-model="accountQuery"
                             placeholder="Cari nama atau email akun…"
                         />
@@ -2848,6 +2894,7 @@ function removeItem(entity: string, id: number, name: string) {
                                         <th>Nama</th>
                                         <th>Email</th>
                                         <th>Status</th>
+                                        <th>Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -2858,28 +2905,45 @@ function removeItem(entity: string, id: number, name: string) {
                                         <td>{{ u.name }}</td>
                                         <td>{{ u.email }}</td>
                                         <td>
-                                            <span class="pill green">{{
-                                                u.active ? 'Aktif' : 'Nonaktif'
-                                            }}</span>
-                                            <button
-                                                class="text-button"
-                                                @click="
-                                                    editMaster('accounts', u)
+                                            <span
+                                                class="pill"
+                                                :class="
+                                                    u.active
+                                                        ? 'green'
+                                                        : 'neutral'
                                                 "
+                                                >{{
+                                                    u.active
+                                                        ? 'Aktif'
+                                                        : 'Nonaktif'
+                                                }}</span
                                             >
-                                                Ubah</button
-                                            ><button
-                                                class="text-button"
-                                                @click="
-                                                    removeItem(
-                                                        'accounts',
-                                                        u.id,
-                                                        u.name,
-                                                    )
-                                                "
-                                            >
-                                                Hapus
-                                            </button>
+                                        </td>
+                                        <td>
+                                            <div class="row-actions">
+                                                <button
+                                                    class="text-button"
+                                                    @click="
+                                                        editMaster(
+                                                            'accounts',
+                                                            u,
+                                                        )
+                                                    "
+                                                >
+                                                    Ubah</button
+                                                ><button
+                                                    class="text-button danger-button"
+                                                    @click="
+                                                        removeItem(
+                                                            'accounts',
+                                                            u.id,
+                                                            u.name,
+                                                        )
+                                                    "
+                                                >
+                                                    Hapus
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 </tbody>

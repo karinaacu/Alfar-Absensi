@@ -1844,3 +1844,135 @@ td .text-button + .text-button {
 .role-assignment > .alfar-select {
     max-width: 380px;
 }
+
+/* Shared search and action spacing. */
+.alfar-app .alfar-search:focus-within {
+    border-color: #7664e8;
+    outline: 3px solid #dcd6ff;
+    outline-offset: 2px;
+}
+.alfar-app .alfar-search input:focus-visible,
+.alfar-app .alfar-search button:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+.account-search {
+    margin: 0 24px 22px;
+}
+.employee-grid {
+    margin-bottom: 24px;
+}
+.employee-schedules {
+    margin-bottom: 24px;
+}
+.text-button {
+    padding: 7px 10px;
+    border-radius: 8px;
+    line-height: 1.4;
+}
+.text-button:hover {
+    background: #f0edff;
+}
+.row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.alfar-app .danger-button {
+    color: #be343f;
+    background: #fff1f2;
+    border: 1px solid #ffd9de;
+    border-radius: 8px;
+    padding: 7px 11px;
+    font-weight: 600;
+}
+.alfar-app .danger-button:hover {
+    color: #9e2430;
+    background: #ffe2e6;
+    border-color: #f7b4bf;
+}
+.employee-card > .danger-button {
+    margin: 12px auto 18px;
+}
+.alfar-sidebar nav {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.alfar-sidebar nav::-webkit-scrollbar {
+    display: none;
+}
+.navigation-toggle,
+.navigation-backdrop {
+    display: none;
+}
+@media (max-width: 900px) {
+    .navigation-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        flex-shrink: 0;
+        height: 38px;
+        width: 100%;
+        margin-bottom: 16px;
+        border: 1px solid #e8e4fb;
+        border-radius: 10px;
+        background: #f5f2ff;
+        color: #5546c8;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .navigation-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 190;
+        border: 0;
+        background: #20213d66;
+        backdrop-filter: blur(3px);
+    }
+    .alfar-sidebar.navigation-open {
+        z-index: 200;
+        width: min(280px, calc(100vw - 36px));
+        padding: 22px 16px;
+        box-shadow: 12px 0 40px #29244324;
+    }
+    .navigation-open .alfar-brand {
+        justify-content: flex-start;
+        padding: 0 10px;
+    }
+    .navigation-open .alfar-brand > span:last-child,
+    .navigation-open .workspace-label,
+    .navigation-open .sidebar-group .nav-caption,
+    .alfar-sidebar.navigation-open .sidebar-bottom {
+        display: block;
+    }
+    .navigation-open nav button {
+        justify-content: flex-start;
+        font-size: 12px;
+        gap: 12px;
+        padding: 12px;
+        text-align: left;
+    }
+    .navigation-open nav button .nav-count {
+        display: inline-flex;
+    }
+    .navigation-open nav {
+        margin-top: 8px;
+    }
+    .navigation-open .navigation-toggle {
+        justify-content: flex-start;
+        padding-left: 12px;
+    }
+    .navigation-open .sidebar-group {
+        margin-bottom: 8px;
+        border: 0;
+    }
+}
+@media (max-width: 600px) {
+    .account-search {
+        margin: 0 18px 20px;
+        min-width: 0;
+    }
+}

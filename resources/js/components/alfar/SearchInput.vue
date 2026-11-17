@@ -48,3 +48,9 @@ const model = defineModel<string>({ default: '' });
     cursor: pointer;
 }
 </style>
+<style scoped>
+input::-webkit-search-cancel-button,
+input::-webkit-search-decoration {
+    display: none;
+}
+</style>
