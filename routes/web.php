@@ -4,6 +4,7 @@ use App\Http\Controllers\Alfar\AttendanceController;
 use App\Http\Controllers\Alfar\ManageController;
 use App\Http\Controllers\Alfar\NotificationController;
 use App\Http\Controllers\Alfar\PasswordController;
+use App\Http\Controllers\Alfar\ScheduleController;
 use App\Http\Controllers\Alfar\WorkController;
 use Illuminate\Support\Facades\Route;
 
@@ -19,6 +20,7 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/notifications', [NotificationController::class, 'destroyAll']);
     Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
     Route::get('/dashboard', [WorkController::class, 'index'])->name('dashboard');
+    Route::post('/schedules/bulk', [ScheduleController::class, 'bulk']);
     Route::post('/manage/{entity}', [ManageController::class, 'store']);
     Route::post('/targets/{id}/submit', [WorkController::class, 'submit']);
     Route::post('/targets/{id}/validate', [WorkController::class, 'validateSubmission']);

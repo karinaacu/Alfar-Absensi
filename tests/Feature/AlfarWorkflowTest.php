@@ -512,4 +512,102 @@ class AlfarWorkflowTest extends TestCase
         Access::audit($this->admin->id, 'review.publish', 'employee:'.$this->employee.':period:'.$this->period, null, ['status' => 'published']);
         $this->assertDatabaseHas('employee_notifications', ['user_id' => $this->worker->id, 'event' => 'review.publish']);
     }
+
+    private function bulkScheduleData(?array $ids = null): array
+    {
+        return ['employee_ids' => $ids ?? [$this->employee, $this->supervisorEmployee], 'shift_id' => $this->shift, 'starts_on' => '2026-11-18', 'ends_on' => '2026-11-24', 'weekdays' => [1, 2, 3, 4, 5, 6, 7], 'existing' => 'skip'];
+    }
+
+    public function test_bulk_schedule_creates_a_week_for_multiple_employees_and_notifies_once_each(): void
+    {
+        $this->actingAs($this->admin)->post('/schedules/bulk', $this->bulkScheduleData())->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('schedules', 15);
+        $this->assertDatabaseHas('schedules', ['employee_id' => $this->employee, 'work_date' => '2026-11-24', 'scheduled_in' => '2026-11-24 08:00:00', 'tolerance_minutes' => 10]);
+        $this->assertDatabaseCount('audit_logs', 1);
+        $this->assertDatabaseCount('employee_notifications', 3);
+        $this->assertDatabaseHas('employee_notifications', ['user_id' => $this->worker->id, 'event' => 'schedules.bulk']);
+    }
+
+    public function test_bulk_schedule_respects_selected_weekdays_and_unselected_employees(): void
+    {
+        $data = [...$this->bulkScheduleData([$this->employee]), 'weekdays' => [1, 2, 3, 4, 5]];
+        $this->actingAs($this->admin)->post('/schedules/bulk', $data)->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('schedules', 6);
+        $this->assertDatabaseMissing('schedules', ['employee_id' => $this->employee, 'work_date' => '2026-11-21']);
+        $this->assertDatabaseMissing('schedules', ['employee_id' => $this->supervisorEmployee, 'work_date' => '2026-11-18']);
+    }
+
+    public function test_bulk_schedule_skip_is_repeatable_without_duplicate_rows_or_notifications(): void
+    {
+        $this->actingAs($this->admin)->post('/schedules/bulk', $this->bulkScheduleData())->assertSessionHasNoErrors();
+        $notices = DB::table('employee_notifications')->count();
+        $this->post('/schedules/bulk', $this->bulkScheduleData())->assertSessionHasNoErrors();
+        $this->post('/schedules/bulk', [...$this->bulkScheduleData(), 'existing' => 'replace'])->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('schedules', 15);
+        $this->assertDatabaseCount('employee_notifications', $notices);
+        $this->assertDatabaseCount('audit_logs', 1);
+    }
+
+    public function test_bulk_replacement_preserves_attendance_and_handles_overnight_shifts(): void
+    {
+        app(Attendance::class)->record($this->employee, 'in', 'wfo', 'fingerprint', CarbonImmutable::now(), '2026-11-17');
+        DB::table('schedules')->insert(['employee_id' => $this->supervisorEmployee, 'shift_id' => $this->shift, 'work_date' => '2026-11-17', 'scheduled_in' => '2026-11-17 08:00:00', 'scheduled_out' => '2026-11-17 17:00:00', 'tolerance_minutes' => 10, 'created_at' => '2026-10-01 00:00:00']);
+        $night = DB::table('shifts')->insertGetId(['name' => 'Malam', 'starts_at' => '22:00', 'ends_at' => '06:00', 'tolerance_minutes' => 15]);
+        $data = [...$this->bulkScheduleData(), 'starts_on' => '2026-11-17', 'ends_on' => '2026-11-18', 'shift_id' => $night, 'existing' => 'replace'];
+        $this->actingAs($this->admin)->post('/schedules/bulk', $data)->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('schedules', ['employee_id' => $this->employee, 'work_date' => '2026-11-17', 'shift_id' => $this->shift, 'scheduled_in' => '2026-11-17 08:00:00']);
+        $this->assertDatabaseHas('schedules', ['employee_id' => $this->supervisorEmployee, 'work_date' => '2026-11-17', 'shift_id' => $night, 'scheduled_out' => '2026-11-18 06:00:00', 'tolerance_minutes' => 15, 'created_at' => '2026-10-01 00:00:00']);
+        $this->assertDatabaseHas('schedules', ['employee_id' => $this->employee, 'work_date' => '2026-11-18', 'scheduled_out' => '2026-11-19 06:00:00']);
+        $this->assertDatabaseCount('attendances', 1);
+        $log = DB::table('audit_logs')->where('action', 'schedules.bulk')->first();
+        $summary = json_decode($log->after, true);
+        $this->assertSame(1, $summary['locked']);
+        $this->assertSame(1, $summary['updated']);
+        $this->assertSame(2, $summary['created']);
+    }
+
+    public function test_bulk_schedule_rejects_invalid_or_disabled_employee_without_partial_changes(): void
+    {
+        $this->actingAs($this->admin)->postJson('/schedules/bulk', $this->bulkScheduleData([$this->employee, 999999]))->assertUnprocessable();
+        $this->worker->forceFill(['active' => false])->save();
+        $this->postJson('/schedules/bulk', $this->bulkScheduleData())->assertUnprocessable();
+        $this->assertDatabaseCount('schedules', 1);
+        $this->assertDatabaseCount('audit_logs', 0);
+    }
+
+    public function test_bulk_schedule_requires_global_organization_permission(): void
+    {
+        $this->postJson('/schedules/bulk', $this->bulkScheduleData())->assertUnauthorized();
+        $this->actingAs($this->worker)->postJson('/schedules/bulk', $this->bulkScheduleData())->assertForbidden();
+        $this->grant($this->supervisor, 'organization.manage', 'self');
+        $this->actingAs($this->supervisor)->postJson('/schedules/bulk', $this->bulkScheduleData())->assertForbidden();
+        $this->assertDatabaseCount('schedules', 1);
+    }
+
+    public function test_bulk_schedule_validates_range_duplicate_employees_and_empty_day_selection(): void
+    {
+        $this->actingAs($this->admin)->postJson('/schedules/bulk', [...$this->bulkScheduleData(), 'ends_on' => '2026-11-01'])->assertUnprocessable();
+        $this->postJson('/schedules/bulk', [...$this->bulkScheduleData(), 'ends_on' => '2028-01-01'])->assertUnprocessable();
+        $this->postJson('/schedules/bulk', $this->bulkScheduleData([$this->employee, $this->employee]))->assertUnprocessable();
+        $this->postJson('/schedules/bulk', [...$this->bulkScheduleData(), 'weekdays' => []])->assertUnprocessable();
+        $this->postJson('/schedules/bulk', [...$this->bulkScheduleData(), 'ends_on' => '2026-11-18', 'weekdays' => [7]])->assertUnprocessable();
+        $this->assertDatabaseCount('schedules', 1);
+    }
+
+    public function test_bulk_schedule_supports_200_employees_over_three_months(): void
+    {
+        $ids = [];
+        for ($i = 0; $i < 200; $i++) {
+            $userId = DB::table('users')->insertGetId(['name' => 'Bulk '.$i, 'email' => 'bulk'.$i.'@alfar.id', 'password' => $this->worker->password, 'active' => true]);
+            $ids[] = DB::table('employees')->insertGetId(['user_id' => $userId, 'nik' => 'BULK-'.$i, 'position_id' => $this->position]);
+        }
+        $data = [...$this->bulkScheduleData($ids), 'starts_on' => '2026-12-01', 'ends_on' => '2027-02-28'];
+        $this->actingAs($this->admin)->postJson('/schedules/bulk', [...$data, 'ends_on' => '2027-11-30'])->assertUnprocessable()->assertJsonValidationErrors('ends_on');
+        $this->assertDatabaseCount('schedules', 1);
+        $this->actingAs($this->admin)->post('/schedules/bulk', $data)->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('schedules', 18001);
+        $this->assertDatabaseCount('employee_notifications', 201);
+        $this->assertDatabaseCount('audit_logs', 1);
+        $this->assertDatabaseHas('schedules', ['employee_id' => $ids[199], 'work_date' => '2027-02-28']);
+    }
 }

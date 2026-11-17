@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { useForm } from '@inertiajs/vue3';
+import { toast } from 'vue-sonner';
+import AppSelect from '@/components/alfar/AppSelect.vue';
 import { watch } from 'vue';
 export interface Field {
     key: string;
@@ -32,6 +34,18 @@ function reset() {
 }
 watch(() => [props.url, props.fields], reset, { immediate: true });
 function send() {
+    for (const field of props.fields)
+        if (
+            field.options &&
+            field.required &&
+            (form[field.key] === null ||
+                form[field.key] === '' ||
+                form[field.key] === undefined)
+        ) {
+            form.setError(field.key, `${field.label} wajib dipilih.`);
+            toast.error(`${field.label} wajib dipilih.`);
+            return;
+        }
     form.transform((data) =>
         Object.fromEntries(
             Object.entries(data).map(([k, v]) => [
@@ -60,20 +74,19 @@ function upload(event: Event, key: string) {
             <span
                 >{{ field.label }} <small v-if="field.required">*</small></span
             >
-            <select
+            <AppSelect
                 v-if="field.options"
                 v-model="form[field.key]"
-                :required="field.required"
-            >
-                <option value="">Pilih…</option>
-                <option
-                    v-for="o in field.options"
-                    :key="o.value"
-                    :value="o.value"
-                >
-                    {{ o.label }}
-                </option>
-            </select>
+                :options="
+                    field.required
+                        ? field.options
+                        : [
+                              { value: '', label: 'Tidak dipilih' },
+                              ...field.options,
+                          ]
+                "
+                :aria-label="field.label"
+            />
             <textarea
                 v-else-if="field.type === 'textarea'"
                 v-model="form[field.key] as string"

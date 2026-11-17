@@ -38,14 +38,17 @@ class ActivityNotifications
             'accounts.save' => 'Akun karyawan berhasil diperbarui', 'role-users.save' => 'Peran akun berhasil diperbarui',
             'roles.save' => 'Peran dan hak akses berhasil disimpan', 'employees.save' => 'Profil karyawan berhasil diperbarui',
             'departments.save' => 'Divisi berhasil disimpan', 'positions.save' => 'Jabatan berhasil disimpan',
-            'shifts.save' => 'Shift kerja berhasil disimpan', 'schedules.save' => 'Jadwal kerja berhasil ditetapkan',
+            'shifts.save' => 'Shift kerja berhasil disimpan', 'schedules.save', 'schedules.bulk' => 'Jadwal kerja berhasil ditetapkan',
             'periods.save','period-status.save' => 'Periode penilaian berhasil diperbarui',
             'metrics.save' => 'Indikator kinerja berhasil disimpan', 'targets.save' => 'Target kinerja berhasil disimpan',
             'devices.save' => 'Perangkat absensi berhasil disimpan', 'device-mappings.save' => 'Identitas perangkat berhasil dihubungkan',
             'password.change' => 'Password berhasil diganti', default => 'Aktivitas berhasil disimpan',
         };
         $body = $title.'.';
-        if (in_array($action, ['attendance.in', 'attendance.out'])) {
+        if ($action === 'schedules.bulk') {
+            $recipients = [$actor, ...DB::table('employees')->whereIn('id', $data['employee_ids'] ?? [])->pluck('user_id')->all()];
+            $body = 'Jadwal kerja untuk rentang '.($data['starts_on'] ?? '').' hingga '.($data['ends_on'] ?? '').' telah diperbarui. Periksa jadwal kerja Anda.';
+        } elseif (in_array($action, ['attendance.in', 'attendance.out'])) {
             $employee = (int) ($data['employee_id'] ?? 0);
             $recipients[] = DB::table('employees')->where('id', $employee)->value('user_id');
             $source = match ($data['source'] ?? '') {

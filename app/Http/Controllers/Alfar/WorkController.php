@@ -26,7 +26,7 @@ class WorkController extends Controller
         // An employee can always see their own input workspace; published reports require reports.read.
         $workspaceIds = array_unique([...$reportIds, ...$attendanceIds, ...$a->ids($user, 'kpi.submit'), ...$a->ids($user, 'kpi.validate'), ...$a->ids($user, 'reviews.publish'), ...$a->ids($user, 'attendance.approve'), ...($me ? [$me->id] : [])]);
         $admin = $a->allows($user, 'organization.manage') || $a->allows($user, 'accounts.manage');
-        $employees = DB::table('employees')->join('users', 'users.id', '=', 'employees.user_id')->join('positions', 'positions.id', '=', 'employees.position_id')->join('departments', 'departments.id', '=', 'positions.department_id')->select('employees.*', 'users.name', 'positions.name as position', 'positions.department_id', 'departments.name as department')->when(! $admin, fn ($q) => $q->whereIn('employees.id', $workspaceIds))->get();
+        $employees = DB::table('employees')->join('users', 'users.id', '=', 'employees.user_id')->join('positions', 'positions.id', '=', 'employees.position_id')->join('departments', 'departments.id', '=', 'positions.department_id')->select('employees.*', 'users.name', 'users.active', 'positions.name as position', 'positions.department_id', 'departments.name as department')->when(! $admin, fn ($q) => $q->whereIn('employees.id', $workspaceIds))->get();
         $periods = DB::table('periods')->orderByDesc('starts_on')->get();
         $periodId = (int) ($r->query('period') ?: $periods->first()?->id);
         $period = DB::table('periods')->where('id', (int) ($periodId))->first();

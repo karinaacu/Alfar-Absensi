@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppSelect from '@/components/alfar/AppSelect.vue';
 import { router } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
 import { BrowserQRCodeReader, type IScannerControls } from '@zxing/browser';
@@ -180,33 +181,35 @@ onBeforeUnmount(() => {
         <div class="scanner-body">
             <div class="scanner-settings">
                 <label
-                    >Cara memindai<select v-model="method">
-                        <option value="laptop_camera">Kamera laptop</option>
-                        <option value="usb_scanner">Alat scanner QR</option>
-                        <option value="phone_camera">Kamera HP</option>
-                    </select></label
+                    >Cara memindai<AppSelect
+                        v-model="method"
+                        :options="[
+                            { value: 'laptop_camera', label: 'Kamera laptop' },
+                            { value: 'usb_scanner', label: 'Alat scanner QR' },
+                            { value: 'phone_camera', label: 'Kamera HP' },
+                        ]"
+                        aria-label="Cara memindai" /></label
                 ><label
-                    >Perangkat kantor<select
+                    >Perangkat kantor<AppSelect
                         v-model="deviceId"
                         :disabled="running || busy"
-                    >
-                        <option value="">Pilih perangkat…</option>
-                        <option
-                            v-for="d in available"
-                            :key="d.id"
-                            :value="String(d.id)"
-                        >
-                            {{ d.name }}
-                        </option>
-                    </select></label
+                        :options="
+                            available.map((d) => ({
+                                value: String(d.id),
+                                label: d.name,
+                            }))
+                        "
+                        aria-label="Perangkat kantor"
+                        placeholder="Pilih perangkat…" /></label
                 ><label
-                    >Jenis absensi<select
+                    >Jenis absensi<AppSelect
                         v-model="event"
                         :disabled="running || busy"
-                    >
-                        <option value="in">Masuk</option>
-                        <option value="out">Pulang</option>
-                    </select></label
+                        :options="[
+                            { value: 'in', label: 'Masuk' },
+                            { value: 'out', label: 'Pulang' },
+                        ]"
+                        aria-label="Jenis absensi" /></label
                 ><label
                     >Tanggal kerja (opsional)<input
                         v-model="workDate"

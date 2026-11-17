@@ -1834,3 +1834,13 @@ td .text-button + .text-button {
         display: none;
     }
 }
+
+.alfar-app .bulk-schedule-modal {
+    max-width: 760px;
+}
+.attendance-personal .clock-form > .alfar-select {
+    width: 100%;
+}
+.role-assignment > .alfar-select {
+    max-width: 380px;
+}

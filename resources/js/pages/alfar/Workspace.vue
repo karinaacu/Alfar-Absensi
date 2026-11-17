@@ -42,6 +42,8 @@ import {
     permissionLabel,
     scopeLabel,
 } from '@/lib/accessLabels';
+import AppSelect from '@/components/alfar/AppSelect.vue';
+import BulkScheduleForm from '@/components/alfar/BulkScheduleForm.vue';
 import DataForm, { type Field } from '@/components/alfar/DataForm.vue';
 
 interface Row {
@@ -59,6 +61,7 @@ interface Employee {
     position: string;
     position_id: number;
     supervisor_id: number | null;
+    active?: boolean | number;
     allow_wfh: boolean;
     allow_wfo: boolean;
 }
@@ -474,10 +477,10 @@ function openForm(
 ) {
     modal.value = { title, url: `/manage/${entity}`, fields, submit };
 }
-function changePeriod(e: Event) {
+function changePeriod(value: unknown) {
     router.get(
         '/dashboard',
-        { period: (e.target as HTMLSelectElement).value },
+        { period: Number(value) },
         { preserveState: true },
     );
 }
@@ -549,12 +552,9 @@ function editEmployee(e?: Employee) {
         ),
     ]);
 }
+const bulkScheduleOpen = ref(false);
 function schedule() {
-    openForm('Tetapkan jadwal kerja', 'schedules', [
-        field('employee_id', 'Karyawan', 'select', true, employeeOptions.value),
-        field('shift_id', 'Shift', 'select', true, names(props.shifts)),
-        field('work_date', 'Tanggal kerja', 'date'),
-    ]);
+    bulkScheduleOpen.value = true;
 }
 function setTarget() {
     openForm('Tetapkan target', 'targets', [
@@ -1049,22 +1049,17 @@ onBeforeUnmount(stopNotifications);
                         </p>
                     </div>
                     <div class="heading-actions">
-                        <select
-                            :value="periodId"
+                        <AppSelect
+                            :model-value="periodId"
+                            :options="names(periods)"
                             aria-label="Periode laporan"
+                            :placeholder="
+                                periods.length
+                                    ? 'Pilih periode'
+                                    : 'Belum ada periode'
+                            "
                             @change="changePeriod"
-                        >
-                            <option v-if="!periods.length" value="0">
-                                Belum ada periode
-                            </option>
-                            <option
-                                v-for="p in periods"
-                                :key="p.id"
-                                :value="p.id"
-                            >
-                                {{ p.name }}
-                            </option></select
-                        ><button
+                        /><button
                             v-if="
                                 has('organization.manage') &&
                                 tab === 'employees'
@@ -1332,19 +1327,18 @@ onBeforeUnmount(stopNotifications);
                                 placeholder="Cari nama, NIK, atau jabatan…"
                             />
                         </div>
-                        <select v-model="department">
-                            <option value="">Semua divisi</option>
-                            <option
-                                v-for="d in [
+                        <AppSelect
+                            v-model="department"
+                            :options="[
+                                { value: '', label: 'Semua divisi' },
+                                ...[
                                     ...new Set(
                                         employees.map((e) => e.department),
                                     ),
-                                ]"
-                                :key="d"
-                            >
-                                {{ d }}
-                            </option></select
-                        ><span class="muted"
+                                ].map((d) => ({ value: d, label: d })),
+                            ]"
+                            aria-label="Filter divisi karyawan"
+                        /><span class="muted"
                             >{{ filteredEmployees.length }} karyawan</span
                         >
                     </div>
@@ -1492,15 +1486,14 @@ onBeforeUnmount(stopNotifications);
                                 belum memiliki akses, ajukan persetujuan
                                 terlebih dahulu.
                             </p>
-                            <select
+                            <AppSelect
                                 v-model="clock.event"
+                                :options="[
+                                    { value: 'in', label: 'Absen masuk WFH' },
+                                    { value: 'out', label: 'Absen pulang WFH' },
+                                ]"
                                 aria-label="Jenis absensi WFH"
-                            >
-                                <option value="in">Absen masuk WFH</option>
-                                <option value="out">
-                                    Absen pulang WFH
-                                </option></select
-                            ><label
+                            /><label
                                 >Tanggal kerja<input
                                     v-model="clock.work_date"
                                     type="date"
@@ -1943,41 +1936,43 @@ onBeforeUnmount(stopNotifications);
                                 placeholder="Cari laporan karyawan…"
                             />
                         </div>
-                        <select v-model="filter">
-                            <option value="all">Semua laporan</option>
-                            <option value="incomplete">Belum lengkap</option>
-                            <option value="missed">KPI meleset</option>
-                            <option value="unpublished">
-                                Belum diterbitkan
-                            </option></select
-                        ><select v-model="department">
-                            <option value="">Semua divisi</option>
-                            <option
-                                v-for="d in [
+                        <AppSelect
+                            v-model="filter"
+                            :options="[
+                                { value: 'all', label: 'Semua laporan' },
+                                { value: 'incomplete', label: 'Belum lengkap' },
+                                { value: 'missed', label: 'KPI meleset' },
+                                {
+                                    value: 'unpublished',
+                                    label: 'Belum diterbitkan',
+                                },
+                            ]"
+                            aria-label="Filter laporan"
+                        /><AppSelect
+                            v-model="department"
+                            :options="[
+                                { value: '', label: 'Semua divisi' },
+                                ...[
                                     ...new Set(
                                         employees.map((e) => e.department),
                                     ),
-                                ]"
-                                :key="d"
-                            >
-                                {{ d }}
-                            </option>
-                        </select>
+                                ].map((d) => ({ value: d, label: d })),
+                            ]"
+                            aria-label="Filter divisi laporan"
+                        />
                     </div>
-                    <select
+                    <AppSelect
                         v-model="shiftFilter"
+                        :options="[
+                            { value: '', label: 'Semua shift' },
+                            ...shifts.map((s) => ({
+                                value: s.id,
+                                label: s.name,
+                            })),
+                        ]"
                         aria-label="Filter shift"
                         class="report-shift-filter"
-                    >
-                        <option value="">Semua shift</option>
-                        <option
-                            v-for="shift in shifts"
-                            :key="shift.id"
-                            :value="shift.id"
-                        >
-                            {{ shift.name }}
-                        </option>
-                    </select>
+                    />
                     <section v-if="!currentReport" class="stats-grid">
                         <article>
                             <p>Karyawan dalam filter</p>
@@ -2857,20 +2852,19 @@ onBeforeUnmount(stopNotifications);
                         @submit.prevent="assignRoles"
                     >
                         <h2>Tetapkan peran ke akun</h2>
-                        <select
+                        <AppSelect
                             v-model="assignUser"
-                            required
+                            :options="
+                                accounts.map((u) => ({
+                                    value: String(u.id),
+                                    label: u.name,
+                                    description: String(u.email),
+                                }))
+                            "
+                            aria-label="Pilih akun untuk penetapan peran"
+                            placeholder="Pilih akun…"
                             @change="loadRoles"
-                        >
-                            <option value="">Pilih akun…</option>
-                            <option
-                                v-for="u in accounts"
-                                :key="u.id"
-                                :value="u.id"
-                            >
-                                {{ u.name }} · {{ u.email }}
-                            </option></select
-                        ><label v-for="role in roles" :key="role.id"
+                        /><label v-for="role in roles" :key="role.id"
                             ><input
                                 v-model="assignedRoles"
                                 type="checkbox"
@@ -3129,25 +3123,22 @@ onBeforeUnmount(stopNotifications);
                         :key="grant.permission"
                         class="grant-scope"
                     >
-                        <select
+                        <AppSelect
                             v-model="grant.scope"
                             :aria-label="`Cakupan akses untuk ${permissionLabel(permission)}`"
                             :disabled="
                                 companyWidePermissions.includes(permission)
                             "
-                        >
-                            <option
-                                v-for="scope in companyWidePermissions.includes(
-                                    permission,
-                                )
+                            :options="
+                                (companyWidePermissions.includes(permission)
                                     ? ['all']
-                                    : scopeCatalog"
-                                :key="scope"
-                                :value="scope"
-                            >
-                                {{ scopeLabel(scope) }}
-                            </option></select
-                        ><TechnicalHint :code="grant.scope" />
+                                    : scopeCatalog
+                                ).map((scope) => ({
+                                    value: scope,
+                                    label: scopeLabel(scope),
+                                }))
+                            "
+                        /><TechnicalHint :code="grant.scope" />
                         <small
                             v-if="companyWidePermissions.includes(permission)"
                             >Berlaku untuk seluruh perusahaan.</small
@@ -3167,6 +3158,31 @@ onBeforeUnmount(stopNotifications);
                     Simpan peran dan hak akses
                 </button>
             </form>
+        </div>
+        <div
+            v-if="bulkScheduleOpen"
+            class="modal-backdrop"
+            @click.self="bulkScheduleOpen = false"
+        >
+            <section
+                class="modal-card bulk-schedule-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Jadwal kerja massal"
+            >
+                <button
+                    type="button"
+                    class="modal-close icon-button"
+                    aria-label="Tutup jadwal massal"
+                    @click="bulkScheduleOpen = false"
+                >
+                    <X :size="21" /></button
+                ><BulkScheduleForm
+                    :employees="employees"
+                    :shifts="shifts"
+                    @saved="bulkScheduleOpen = false"
+                />
+            </section>
         </div>
     </div>
 </template>

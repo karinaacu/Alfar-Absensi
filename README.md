@@ -36,7 +36,7 @@ php artisan test
 1. Login superadmin, ganti password sementara.
 2. Ikuti kelompok menu: Organisasi (divisi, jabatan) → Tim & hak akses (peran, akun @alfar.id, karyawan) → Kehadiran (shift, jadwal, perangkat). Hubungkan supervisor dan tetapkan akses WFO/WFH.
 3. Buat peran; pilih kegiatan yang diizinkan dan cakupan akses. Administrasi akun/organisasi memakai Seluruh perusahaan (`all`). Akses akun tidak otomatis memberi akses laporan. Tetapkan role ke akun.
-4. Tetapkan jadwal per karyawan/tanggal. Shift lintas tengah malam didukung; jadwal menyimpan jam dan toleransi agar aturan lama tidak berubah saat shift baru dibuat.
+4. Tetapkan jadwal massal melalui Kehadiran → Jadwal karyawan: pilih semua/beberapa karyawan dan rentang tanggal. Shift lintas tengah malam didukung; jadwal menyimpan jam dan toleransi agar aturan lama tidak berubah saat shift baru dibuat.
 5. Buat template KPI per jabatan dan periode (planning). Tetapkan target individu dengan total bobot 100%, atau target tim per departemen/shift. Aktifkan periode untuk mengunci definisi/target/bobot.
 6. Input realisasi dan unggah bukti privat. Supervisor memvalidasi atau mengembalikan. Mulai tahap review, catat analisis, tindak lanjut dan tanggal peninjauan. Terbitkan setelah KPI lengkap.
 7. Karyawan membaca laporan yang terbit dan memberi tanggapan. Revisi laporan terbit harus disertai alasan; snapshot sebelum/sesudah disimpan dalam audit. Tutup periode setelah semua review individu terbit.
@@ -110,7 +110,7 @@ Untuk keluar gunakan `event: out`. Event yang sama idempotent; event baru tidak 
 
 ## Batas MVP
 
-Master divisi/jabatan/template/shift dapat dibuat dan diubah melalui panel; riwayat perubahan penempatan karyawan disimpan. Jadwal dibuat per hari. Kalender libur massal, integrasi vendor otomatis, coaching terstruktur, notifikasi reminder, ekspor laporan PDF, gabungan skor kinerja-kehadiran memerlukan tahap berikutnya. Bukti KPI disimpan privat dan diunduh melalui pemeriksaan izin. Backup, retensi audit/bukti, worker email serta layanan database produksi dikelola pada server.
+Master divisi/jabatan/template/shift dapat dibuat dan diubah melalui panel; riwayat perubahan penempatan karyawan disimpan. Jadwal dapat ditetapkan massal untuk beberapa karyawan sekaligus dalam satu rentang tanggal. Kalender libur massal, integrasi vendor otomatis, coaching terstruktur, notifikasi reminder, ekspor laporan PDF, gabungan skor kinerja-kehadiran memerlukan tahap berikutnya. Bukti KPI disimpan privat dan diunduh melalui pemeriksaan izin. Backup, retensi audit/bukti, worker email serta layanan database produksi dikelola pada server.
 
 Panduan CI/CD dan semua GitHub Secrets/Variables: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
 
@@ -123,3 +123,15 @@ Menu **Notifikasi saya** dan ikon lonceng menampilkan aktivitas berhasil yang re
 Saat dashboard terbuka, pembaruan diperiksa setiap 5 detik dan aktivitas baru dari perangkat lain ditampilkan sebagai toast. Aktivitas yang dilakukan sendiri sudah mendapat toast langsung dan riwayatnya dianggap telah dibaca. Riwayat lama tetap bisa dilihat melalui menu notifikasi tanpa menampilkan ulang seluruh toast saat login.
 
 Setiap akun hanya dapat membaca, menandai dibaca, dan menghapus notifikasinya sendiri (satuan atau semua dengan konfirmasi). Penyimpanan dibatasi **200 notifikasi terbaru per akun**, tanpa kebutuhan cron tambahan. Menghapus notifikasi tidak menghapus absensi, realisasi, atau log audit. Riwayat ini dimulai dari aktivitas setelah migrasi notifikasi dipasang; log audit lama tidak disalin massal.
+
+## Penjadwalan massal dan dropdown
+
+Buka **Kehadiran → Jadwal karyawan → Tetapkan jadwal**. Pilih beberapa karyawan melalui dropdown pencarian nama/NIK/divisi, atau tekan **Pilih semua** untuk seluruh karyawan aktif yang tersedia. Akun tidak aktif ditolak server.
+
+Pilih shift, tanggal mulai, lalu pilihan cepat **1 minggu**, **1 bulan**, **3 bulan**, atau rentang sendiri. Pilihan minggu mencakup 7 hari kalender; pilihan bulan mengikuti bulan kalender dari tanggal mulai. Pilih hari kerja yang digunakan; semua hari dipilih secara awal, termasuk akhir pekan. Ringkasan menampilkan jumlah karyawan × hari kerja sebelum disimpan.
+
+Secara awal, jadwal yang sudah ada dipertahankan. Pilihan **Perbarui jadwal yang belum memiliki absensi** hanya mengganti jadwal tanpa catatan kehadiran. Semua jadwal berabsensi selalu dilewati dan tidak ditimpa. Shift malam otomatis berakhir pada tanggal berikutnya. Jam kerja serta toleransi disalin ke tiap jadwal; waktu pembuatan jadwal lama tetap dipertahankan saat diperbarui.
+
+Penyimpanan bersifat atomik, memakai operasi database berkelompok (500 jadwal per batch), maksimal 2.000 karyawan, rentang 366 hari, dan 50.000 kombinasi jadwal per permintaan. Uji mencakup 200 karyawan × 90 hari = 18.000 jadwal. Hasil toast merangkum jadwal dibuat, diperbarui, dipertahankan, dan dilindungi karena absensi. Satu log audit dan satu notifikasi per akun terdampak dibuat untuk satu proses massal, bukan per hari. Tabel jadwal masih menampilkan maksimal 500 catatan terbaru dalam periode yang dipilih.
+
+Seluruh dropdown pada formulir, filter, perangkat pemindai, dan peran menggunakan komponen `AppSelect`, tanpa elemen select native. Mendukung pencarian, keyboard panah/Enter/Escape/Tab, serta panel pilihan yang mengikuti ukuran layar dan tetap terlihat di dalam modal.
