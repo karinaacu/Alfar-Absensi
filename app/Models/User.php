@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
 
 /**
  * @property int $id
@@ -30,6 +31,22 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 
+    protected $attributes = [
+        'active' => true,
+        'is_superadmin' => false,
+        'must_change_password' => false,
+    ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (User $user) {
+            $user->email = strtolower(trim($user->email));
+            if (! preg_match('/^[^@\s]+@alfar\.id$/i', $user->email)) {
+                throw ValidationException::withMessages(['email' => 'Gunakan domain tepat alfar.id.']);
+            }
+        });
+    }
+
     /**
      * Get the attributes that should be cast.
      *
@@ -40,6 +57,9 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_superadmin' => 'boolean',
+            'must_change_password' => 'boolean',
+            'active' => 'boolean',
         ];
     }
 }

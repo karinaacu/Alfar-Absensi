@@ -29,7 +29,7 @@ class ProfileUpdateTest extends TestCase
             ->actingAs($user)
             ->patch(route('profile.update'), [
                 'name' => 'Test User',
-                'email' => 'test@example.com',
+                'email' => 'test@alfar.id',
             ]);
 
         $response
@@ -39,7 +39,7 @@ class ProfileUpdateTest extends TestCase
         $user->refresh();
 
         $this->assertSame('Test User', $user->name);
-        $this->assertSame('test@example.com', $user->email);
+        $this->assertSame('test@alfar.id', $user->email);
         $this->assertNull($user->email_verified_at);
     }
 
@@ -51,16 +51,16 @@ class ProfileUpdateTest extends TestCase
             ->actingAs($user)
             ->patch(route('profile.update'), [
                 'name' => 'Test User',
-                'email' => 'Test@Example.com',
+                'email' => 'Test@Alfar.id',
             ])
             ->assertSessionHasNoErrors();
 
-        $this->assertSame('test@example.com', $user->refresh()->email);
+        $this->assertSame('test@alfar.id', $user->refresh()->email);
 
         $this->post(route('logout'));
 
         $this->post(route('login.store'), [
-            'email' => 'Test@Example.com',
+            'email' => 'Test@Alfar.id',
             'password' => 'password',
         ]);
 
@@ -69,7 +69,7 @@ class ProfileUpdateTest extends TestCase
 
     public function test_email_must_be_unique_regardless_of_case()
     {
-        User::factory()->create(['email' => 'taken@example.com']);
+        User::factory()->create(['email' => 'taken@alfar.id']);
 
         $user = User::factory()->create();
 
@@ -78,7 +78,7 @@ class ProfileUpdateTest extends TestCase
             ->from(route('profile.edit'))
             ->patch(route('profile.update'), [
                 'name' => 'Test User',
-                'email' => 'Taken@Example.com',
+                'email' => 'Taken@Alfar.id',
             ]);
 
         $response
