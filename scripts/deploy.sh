@@ -13,7 +13,7 @@ test -z "$(git status --porcelain --untracked-files=no)" || { echo 'Tracked serv
 [[ "$(git branch --show-current)" = main ]] || { echo 'Server checkout must use main.' >&2; exit 1; }
 command -v composer >/dev/null
 command -v npm >/dev/null
-php -r 'exit(PHP_VERSION_ID >= 80300 ? 0 : 1);'
+php -r 'exit(PHP_VERSION_ID >= 80401 ? 0 : 1);'
 # Never reset or discard server changes. A read-only deploy key must allow server-side Git fetch.
 git fetch origin refs/heads/main:refs/remotes/origin/main
 [[ "$(git rev-parse origin/main)" = "$expected_commit" ]] || { echo 'main advanced since this run; deploy the latest successful run.' >&2; exit 1; }

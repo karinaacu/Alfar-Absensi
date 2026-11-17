@@ -4,7 +4,7 @@ Laravel 13 + Vue 3 + Inertia 3 + TypeScript + Tailwind 4. Bahasa antarmuka utama
 
 ## Pengembangan
 
-PHP 8.3+, Composer 2, Node 22.12+, ekstensi mbstring, DOM/XML/XMLReader/XMLWriter, zip, fileinfo, PDO SQLite (atau driver database pilihan).
+PHP 8.4.1+, Composer 2, Node 22.12+, ekstensi mbstring, DOM/XML/XMLReader/XMLWriter, zip, fileinfo, PDO SQLite (atau driver database pilihan).
 
 ```bash
 composer install

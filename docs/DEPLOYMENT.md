@@ -27,7 +27,7 @@ Workflow menggunakan GitHub environment `production`; jika diaktifkan, aturan ap
 
 ## Persiapan server satu kali
 
-1. PHP CLI dan PHP-FPM **8.3 atau lebih baru** dengan mbstring, XML/DOM/XMLReader/XMLWriter, zip, fileinfo, PDO dan driver database; Composer 2; Node.js **22.12+** dan npm; Git, Bash, serta `flock`.
+1. PHP CLI dan PHP-FPM **8.4.1 atau lebih baru** dengan mbstring, XML/DOM/XMLReader/XMLWriter, zip, fileinfo, PDO dan driver database; Composer 2; Node.js **22.12+** dan npm; Git, Bash, serta `flock`.
 2. Checkout repositori di `DEPLOY_PATH`, branch `main`. Gunakan read-only GitHub deploy key pada server agar `git fetch origin` bekerja tanpa prompt. Key ini berbeda dari key Actions → server. Tidak ada token GitHub yang disalin melalui workflow.
 3. Siapkan `.env` production secara manual (jangan commit): `APP_NAME="Alfar People"`, `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://rdw.biz.id`, `APP_TIMEZONE=Asia/Jakarta`, `SESSION_SECURE_COOKIE=true`, `DB_*` dan mail transport perusahaan. Buat database dan user database dengan izin migrasi. SQLite dipakai untuk pengembangan/test; produksi dapat memakai PostgreSQL atau MySQL dengan driver PDO yang sesuai.
 4. Dari direktori aplikasi:
