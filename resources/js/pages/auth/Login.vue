@@ -1,12 +1,21 @@
 <script setup lang="ts">
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import { watch } from 'vue';
+import { toast } from 'vue-sonner';
 import {
     ArrowRight,
     ChartNoAxesCombined,
     ShieldCheck,
     Target,
 } from '@lucide/vue';
-defineProps<{ status?: string; canResetPassword: boolean }>();
+const props = defineProps<{ status?: string; canResetPassword: boolean }>();
+watch(
+    () => props.status,
+    (value) => {
+        if (value) toast.info(value);
+    },
+    { immediate: true },
+);
 const form = useForm({ email: '', password: '', remember: false });
 </script>
 <template>
@@ -48,6 +57,10 @@ const form = useForm({ email: '', password: '', remember: false });
             <form
                 @submit.prevent="
                     form.post('/login', {
+                        onSuccess: () =>
+                            toast.success(
+                                'Berhasil masuk. Selamat datang di Alfar People.',
+                            ),
                         onFinish: () => form.reset('password'),
                     })
                 "
@@ -57,7 +70,6 @@ const form = useForm({ email: '', password: '', remember: false });
                 <p>
                     Masuk ke workspace Alfar menggunakan akun perusahaan Anda.
                 </p>
-                <div v-if="status" class="login-status">{{ status }}</div>
                 <label
                     >Email perusahaan<input
                         v-model="form.email"

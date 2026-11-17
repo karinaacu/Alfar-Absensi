@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { Form, Head } from '@inertiajs/vue3';
+import { watch } from 'vue';
+import { toast } from 'vue-sonner';
 import InputError from '@/components/InputError.vue';
 import TextLink from '@/components/TextLink.vue';
 import { Button } from '@/components/ui/button';
@@ -16,20 +18,21 @@ defineOptions({
     },
 });
 
-defineProps<{
-    status?: string;
-}>();
+const props = defineProps<{ status?: string }>();
+watch(
+    () => props.status,
+    (value) => {
+        if (value)
+            toast.success(
+                'Tautan pengaturan ulang password telah dikirim. Periksa email perusahaan Anda.',
+            );
+    },
+    { immediate: true },
+);
 </script>
 
 <template>
     <Head title="Forgot password" />
-
-    <div
-        v-if="status"
-        class="mb-4 text-center text-sm font-medium text-green-600"
-    >
-        {{ status }}
-    </div>
 
     <div class="space-y-6">
         <Form v-bind="email.form()" v-slot="{ errors, processing }">

@@ -24,6 +24,6 @@ class PasswordController extends Controller
         $r->session()->regenerate();
         Access::audit($r->user()->id, 'password.change', 'user:'.$r->user()->id);
 
-        return redirect('/dashboard');
+        return redirect('/dashboard')->with('success', 'Password berhasil diganti.');
     }
 }

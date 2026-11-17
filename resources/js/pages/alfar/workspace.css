@@ -1167,16 +1167,6 @@ td .text-button + .text-button {
 .review-text .stat-icon {
     margin-bottom: 12px;
 }
-.success-banner {
-    padding: 14px 18px;
-    border-radius: 10px;
-    background: #e8f7ef;
-    color: #51a17a;
-    font-size: 12px;
-    display: flex;
-    gap: 10px;
-    margin-bottom: 22px;
-}
 .error {
     color: #c96464 !important;
     font-size: 11px !important;

@@ -85,7 +85,6 @@ class WorkController extends Controller
             'deviceMappings' => $a->allows($user, 'devices.manage') ? DB::table('device_employees')->get() : [],
             'audits' => $user->is_superadmin ? DB::table('audit_logs')->latest('id')->limit(100)->get() : [],
             'placements' => $admin ? DB::table('placements')->latest('id')->limit(200)->get() : [],
-            'success' => $r->session()->get('success'),
         ]);
     }
 

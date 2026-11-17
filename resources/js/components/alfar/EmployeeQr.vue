@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import QRCode from 'qrcode';
+import { toast } from 'vue-sonner';
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 const props = defineProps<{ name: string; nik: string; allowWfo: boolean }>();
 const image = ref('');
@@ -65,6 +66,7 @@ async function refresh() {
             active.value = false;
             error.value =
                 'Permintaan QR terlalu sering. Tunggu hitungan selesai sebelum menampilkan ulang QR.';
+            toast.warning(error.value, { id: 'qr-error' });
             waitBeforeRetry(wait);
             return;
         }
@@ -97,8 +99,14 @@ async function refresh() {
         }, duration);
     } catch (e) {
         if (disposed) return;
-        error.value = e instanceof Error ? e.message : 'QR tidak dapat dibuat.';
+        error.value =
+            e instanceof TypeError
+                ? 'Koneksi terputus. Periksa jaringan lalu tampilkan ulang QR.'
+                : e instanceof Error
+                  ? e.message
+                  : 'QR tidak dapat dibuat.';
         active.value = false;
+        toast.error(error.value, { id: 'qr-error' });
     } finally {
         loading.value = false;
     }
@@ -166,7 +174,6 @@ onBeforeUnmount(() => {
                 <span v-if="image && active" class="pill green"
                     >Diperbarui dalam {{ seconds }} detik</span
                 >
-                <p v-if="error" class="error">{{ error }}</p>
                 <button
                     v-if="!active"
                     class="primary"

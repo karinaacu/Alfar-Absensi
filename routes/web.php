@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Alfar\AttendanceController;
 use App\Http\Controllers\Alfar\ManageController;
+use App\Http\Controllers\Alfar\NotificationController;
 use App\Http\Controllers\Alfar\PasswordController;
 use App\Http\Controllers\Alfar\WorkController;
 use Illuminate\Support\Facades\Route;
@@ -11,6 +12,12 @@ Route::post('/api/fingerprint/events', [AttendanceController::class, 'fingerprin
 Route::middleware(['auth'])->group(function () {
     Route::get('/password/change', [PasswordController::class, 'edit']);
     Route::post('/password/change', [PasswordController::class, 'update'])->middleware('throttle:6,1');
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/feed', [NotificationController::class, 'feed']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
+    Route::patch('/notifications/{id}/read', [NotificationController::class, 'read']);
+    Route::delete('/notifications', [NotificationController::class, 'destroyAll']);
+    Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
     Route::get('/dashboard', [WorkController::class, 'index'])->name('dashboard');
     Route::post('/manage/{entity}', [ManageController::class, 'store']);
     Route::post('/targets/{id}/submit', [WorkController::class, 'submit']);

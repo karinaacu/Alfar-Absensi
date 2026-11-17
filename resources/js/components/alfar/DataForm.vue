@@ -105,9 +105,6 @@ function upload(event: Event, key: string) {
                 form.errors[field.key]
             }}</small>
         </label>
-        <p v-for="(error, key) in form.errors" :key="key" class="error">
-            {{ error }}
-        </p>
         <button class="primary" :disabled="form.processing">
             {{ form.processing ? 'Menyimpan…' : submit || 'Simpan' }}
         </button>

@@ -41,13 +41,6 @@ const form = useForm({
                             : 'new-password'
                     "
             /></label>
-            <p
-                v-for="error in form.errors"
-                :key="error"
-                class="text-sm text-red-600"
-            >
-                {{ error }}
-            </p>
             <button
                 class="w-full rounded-xl bg-[#5546e8] p-3 font-medium text-white transition-colors hover:bg-[#4636d3] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5546e8] disabled:cursor-wait disabled:opacity-60"
                 :disabled="form.processing"

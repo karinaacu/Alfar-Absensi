@@ -4,6 +4,7 @@ import '@fontsource/instrument-sans/600.css';
 import '@fontsource/instrument-sans/700.css';
 import { createInertiaApp } from '@inertiajs/vue3';
 import { initializeTheme } from '@/composables/useAppearance';
+import ToastLayout from '@/layouts/ToastLayout.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import AuthLayout from '@/layouts/AuthLayout.vue';
 import SettingsLayout from '@/layouts/settings/Layout.vue';
@@ -18,13 +19,13 @@ void createInertiaApp({
             case name === 'auth/Login':
             case name.startsWith('alfar/'):
             case name === 'Welcome':
-                return null;
+                return ToastLayout;
             case name.startsWith('auth/'):
-                return AuthLayout;
+                return [ToastLayout, AuthLayout];
             case name.startsWith('settings/'):
-                return [AppLayout, SettingsLayout];
+                return [ToastLayout, AppLayout, SettingsLayout];
             default:
-                return AppLayout;
+                return [ToastLayout, AppLayout];
         }
     },
     withApp: (app) => {

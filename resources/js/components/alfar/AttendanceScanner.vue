@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { router } from '@inertiajs/vue3';
+import { toast } from 'vue-sonner';
 import { BrowserQRCodeReader, type IScannerControls } from '@zxing/browser';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 export interface ScanDevice {
@@ -19,13 +20,6 @@ const input = ref<HTMLInputElement | null>(null);
 const video = ref<HTMLVideoElement | null>(null);
 const running = ref(false);
 const busy = ref(false);
-const error = ref('');
-const result = ref<{
-    employee_name: string;
-    nik: string;
-    message: string;
-    recorded_at: string;
-} | null>(null);
 let controls: IScannerControls | undefined;
 let lastCode = '';
 let disposed = false;
@@ -48,8 +42,6 @@ watch(
 );
 watch([deviceId, event, workDate], () => {
     lastCode = '';
-    result.value = null;
-    error.value = '';
 });
 function stop() {
     running.value = false;
@@ -59,14 +51,22 @@ function stop() {
 async function consume(text: string) {
     if (busy.value || text === lastCode || disposed) return;
     lastCode = text;
-    error.value = '';
-    result.value = null;
     try {
-        const url = new URL(text);
-        if (url.origin !== location.origin) throw new Error();
-        const token = url.searchParams.get('employee_qr');
-        if (!token || !/^[A-Za-z0-9]{64}$/.test(token)) throw new Error();
+        let token: string | null;
+        try {
+            const url = new URL(text);
+            token = url.searchParams.get('employee_qr');
+            if (
+                url.origin !== location.origin ||
+                !token ||
+                !/^[A-Za-z0-9]{64}$/.test(token)
+            )
+                throw new Error();
+        } catch {
+            throw new Error('QR bukan QR karyawan dari aplikasi ini.');
+        }
         busy.value = true;
+        toast.loading('Mencatat kehadiran…', { id: 'scan-result' });
         const csrf = decodeURIComponent(
             document.cookie
                 .split('; ')
@@ -99,15 +99,22 @@ async function consume(text: string) {
             throw new Error(messages || 'Absensi belum dapat dicatat.');
         }
         if (!disposed) {
-            result.value = data;
+            toast.success(data.message, {
+                id: 'scan-result',
+                description: `${data.employee_name} · ${data.nik} · ${data.recorded_at}`,
+            });
             router.reload({ only: ['attendances'] });
         }
     } catch (e) {
         if (!disposed)
-            error.value =
-                e instanceof Error && e.message
-                    ? e.message
-                    : 'QR bukan QR karyawan dari aplikasi ini.';
+            toast.error(
+                e instanceof TypeError
+                    ? 'Koneksi terputus. Periksa jaringan lalu coba lagi.'
+                    : e instanceof Error && e.message
+                      ? e.message
+                      : 'QR bukan QR karyawan dari aplikasi ini.',
+                { id: 'scan-result' },
+            );
     } finally {
         busy.value = false;
         rawCode.value = '';
@@ -115,7 +122,6 @@ async function consume(text: string) {
 }
 async function startCamera() {
     if (!deviceId.value || running.value) return;
-    error.value = '';
     running.value = true;
     lastCode = '';
     await nextTick();
@@ -138,9 +144,12 @@ async function startCamera() {
         );
         if (!running.value) controls.stop();
     } catch {
+        if (disposed) return;
         stop();
-        error.value =
-            'Kamera belum dapat diakses. Gunakan HTTPS, izinkan kamera, lalu pastikan kamera tidak dipakai aplikasi lain.';
+        toast.error(
+            'Kamera belum dapat diakses. Gunakan HTTPS, izinkan kamera, lalu pastikan kamera tidak dipakai aplikasi lain.',
+            { id: 'camera-error' },
+        );
     }
 }
 async function focusScanner() {
@@ -150,6 +159,7 @@ async function focusScanner() {
 }
 onBeforeUnmount(() => {
     disposed = true;
+    toast.dismiss('scan-result');
     stop();
 });
 </script>
@@ -258,13 +268,6 @@ onBeforeUnmount(() => {
                     dan tombol Enter secara otomatis.</small
                 >
             </form>
-            <p v-if="busy" role="status">Mencatat kehadiran…</p>
-            <div v-if="result" class="scan-success" role="status">
-                <strong>{{ result.employee_name }} · {{ result.nik }}</strong>
-                <p>{{ result.message }}</p>
-                <small>{{ result.recorded_at }}</small>
-            </div>
-            <p v-if="error" role="alert" class="error">{{ error }}</p>
             <p class="scanner-note">
                 Mode masuk dan pulang dipilih petugas. Memindai ulang pada mode
                 yang sama tidak akan menggandakan absensi.
@@ -325,20 +328,6 @@ onBeforeUnmount(() => {
 }
 .scanner-body > .primary {
     align-self: center;
-}
-.scan-success {
-    border: 1px solid #c3e8d5;
-    border-radius: 12px;
-    background: #edf9f2;
-    padding: 18px;
-    color: #26734e;
-}
-.scan-success strong {
-    font-size: 16px;
-}
-.scan-success p {
-    margin: 6px 0;
-    font-size: 13px;
 }
 .usb-scanner-form {
     display: flex;

@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -38,6 +39,7 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'name' => config('app.name'),
+            'success_notice' => fn () => $request->session()->has('success') ? ['id' => (string) Str::uuid(), 'message' => $request->session()->get('success')] : null,
             'auth' => [
                 'user' => $request->user(),
             ],

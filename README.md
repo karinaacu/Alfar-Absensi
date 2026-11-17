@@ -113,3 +113,13 @@ Untuk keluar gunakan `event: out`. Event yang sama idempotent; event baru tidak 
 Master divisi/jabatan/template/shift dapat dibuat dan diubah melalui panel; riwayat perubahan penempatan karyawan disimpan. Jadwal dibuat per hari. Kalender libur massal, integrasi vendor otomatis, coaching terstruktur, notifikasi reminder, ekspor laporan PDF, gabungan skor kinerja-kehadiran memerlukan tahap berikutnya. Bukti KPI disimpan privat dan diunduh melalui pemeriksaan izin. Backup, retensi audit/bukti, worker email serta layanan database produksi dikelola pada server.
 
 Panduan CI/CD dan semua GitHub Secrets/Variables: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+## Toast dan notifikasi karyawan
+
+Pesan berhasil/gagal ditampilkan sebagai toast di seluruh halaman, termasuk formulir dan pemindai QR. Hasil gagal tidak masuk riwayat notifikasi. Koreksi isian tetap ditandai pada kolom terkait.
+
+Menu **Notifikasi saya** dan ikon lonceng menampilkan aktivitas berhasil yang relevan dengan akun: absensi QR/sidik jari/WFH/impor, pengajuan dan keputusan supervisor, realisasi KPI, publikasi laporan, serta perubahan akun/jadwal. Absensi masuk ke akun pemilik identitas karyawan, bukan hanya petugas. Log teknis pemindaian tidak menggandakan notifikasi absensi yang sama. Pemindaian gagal atau pengiriman ulang event fingerprint yang sama tidak menambah notifikasi.
+
+Saat dashboard terbuka, pembaruan diperiksa setiap 5 detik dan aktivitas baru dari perangkat lain ditampilkan sebagai toast. Aktivitas yang dilakukan sendiri sudah mendapat toast langsung dan riwayatnya dianggap telah dibaca. Riwayat lama tetap bisa dilihat melalui menu notifikasi tanpa menampilkan ulang seluruh toast saat login.
+
+Setiap akun hanya dapat membaca, menandai dibaca, dan menghapus notifikasinya sendiri (satuan atau semua dengan konfirmasi). Penyimpanan dibatasi **200 notifikasi terbaru per akun**, tanpa kebutuhan cron tambahan. Menghapus notifikasi tidak menghapus absensi, realisasi, atau log audit. Riwayat ini dimulai dari aktivitas setelah migrasi notifikasi dipasang; log audit lama tidak disalin massal.

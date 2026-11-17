@@ -25,7 +25,13 @@ import {
     Users,
     X,
 } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
+import NotificationCenter from '@/components/alfar/NotificationCenter.vue';
+import {
+    unreadNotifications,
+    startNotifications,
+    stopNotifications,
+} from '@/composables/useNotifications';
 import EmployeeQr from '@/components/alfar/EmployeeQr.vue';
 import AttendanceScanner, {
     type ScanDevice,
@@ -166,7 +172,6 @@ const props = defineProps<{
     deviceMappings: Row[];
     audits: Row[];
     placements: Row[];
-    success?: string;
 }>();
 const page = usePage();
 const tab = ref('overview');
@@ -191,6 +196,12 @@ const menuGroups = computed(() =>
                     id: 'overview',
                     label: 'Dasbor',
                     icon: LayoutDashboard,
+                    show: true,
+                },
+                {
+                    id: 'notifications',
+                    label: 'Notifikasi saya',
+                    icon: Bell,
                     show: true,
                 },
             ],
@@ -921,6 +932,8 @@ function registerDevice() {
         },
     ]);
 }
+onMounted(() => startNotifications(Number(page.props.auth.user.id)));
+onBeforeUnmount(stopNotifications);
 </script>
 
 <template>
@@ -992,12 +1005,10 @@ function registerDevice() {
                     }}</span
                     ><button
                         class="icon-button"
-                        aria-label="Lihat pengajuan"
-                        @click="tab = 'attendance'"
+                        aria-label="Buka notifikasi saya"
+                        @click="tab = 'notifications'"
                     >
-                        <Bell :size="19" /><i
-                            v-if="requests.some((r) => r.status === 'pending')"
-                        />
+                        <Bell :size="19" /><i v-if="unreadNotifications > 0" />
                     </button>
                     <div class="user-avatar">
                         {{
@@ -1013,9 +1024,6 @@ function registerDevice() {
                 </div>
             </header>
             <main class="alfar-content">
-                <div v-if="success" class="success-banner">
-                    <Check :size="18" />{{ success }}
-                </div>
                 <div class="page-heading">
                     <div>
                         <div class="eyebrow">
@@ -1083,6 +1091,7 @@ function registerDevice() {
                     </div>
                 </div>
 
+                <NotificationCenter v-if="tab === 'notifications'" />
                 <template v-if="tab === 'overview'">
                     <section class="overview-top">
                         <div class="welcome-card">
@@ -1508,13 +1517,6 @@ function registerDevice() {
                             >
                                 Ajukan WFH / koreksi / izin
                             </button>
-                            <p
-                                v-for="error in clock.errors"
-                                :key="error"
-                                class="error"
-                            >
-                                {{ error }}
-                            </p>
                         </form>
                     </section>
                     <template v-if="tab === 'scanner' && has('attendance.scan')"
@@ -3161,9 +3163,6 @@ function registerDevice() {
                         >Belum diizinkan</span
                     >
                 </div>
-                <p v-for="error in roleForm.errors" :key="error" class="error">
-                    {{ error }}
-                </p>
                 <button class="primary" :disabled="roleForm.processing">
                     Simpan peran dan hak akses
                 </button>

@@ -73,6 +73,9 @@ class Access
 
     public static function audit(?int $actor, string $action, string $subject, mixed $before = null, mixed $after = null, ?string $reason = null): void
     {
-        DB::table('audit_logs')->insert(['actor_id' => $actor, 'action' => $action, 'subject' => $subject, 'before' => $before === null ? null : json_encode($before), 'after' => $after === null ? null : json_encode($after), 'reason' => $reason, 'created_at' => now(), 'updated_at' => now()]);
+        DB::transaction(function () use ($actor, $action, $subject, $before, $after, $reason) {
+            $auditId = DB::table('audit_logs')->insertGetId(['actor_id' => $actor, 'action' => $action, 'subject' => $subject, 'before' => $before === null ? null : json_encode($before), 'after' => $after === null ? null : json_encode($after), 'reason' => $reason, 'created_at' => now(), 'updated_at' => now()]);
+            ActivityNotifications::fromAudit($auditId, $actor, $action, $subject, $before, $after);
+        });
     }
 }

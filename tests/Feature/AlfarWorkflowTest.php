@@ -273,6 +273,7 @@ class AlfarWorkflowTest extends TestCase
         $file = new UploadedFile($path, 'absensi.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
         $this->actingAs($this->admin)->postJson('/attendance/import', ['file' => $file])->assertUnprocessable()->assertJsonValidationErrors('file');
         $this->assertDatabaseCount('attendances', 0);
+        $this->assertDatabaseCount('employee_notifications', 0);
         unlink($path);
     }
 
@@ -429,5 +430,86 @@ class AlfarWorkflowTest extends TestCase
         }
         $this->postJson('/attendance/qr')->assertTooManyRequests()->assertHeader('Retry-After');
         $this->actingAs($this->supervisor)->postJson('/attendance/qr')->assertOk();
+    }
+
+    public function test_qr_success_notifies_owner_once_and_failed_scan_is_not_saved(): void
+    {
+        $token = $this->personalToken();
+        $device = $this->scannerDevice();
+        $payload = ['token' => $token, 'device_id' => $device, 'input_method' => 'laptop_camera', 'event' => 'in'];
+        $this->actingAs($this->admin)->postJson('/attendance/scan', $payload)->assertOk();
+        $this->assertDatabaseCount('employee_notifications', 1);
+        $this->assertDatabaseHas('employee_notifications', ['user_id' => $this->worker->id, 'event' => 'attendance.in', 'title' => 'Absen masuk berhasil', 'read_at' => null]);
+        $this->postJson('/attendance/scan', $payload)->assertUnprocessable();
+        $this->assertDatabaseCount('employee_notifications', 1);
+        $this->actingAs($this->worker)->getJson('/notifications')->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.event', 'attendance.in');
+        $this->actingAs($this->admin)->getJson('/notifications')->assertJsonPath('total', 0);
+    }
+
+    public function test_fingerprint_success_notifies_employee_and_duplicate_does_not_repeat_notification(): void
+    {
+        $token = str_repeat('c', 64);
+        $device = DB::table('devices')->insertGetId(['name' => 'Sidik jari kantor', 'token_hash' => hash('sha256', $token), 'type' => 'fingerprint']);
+        DB::table('device_employees')->insert(['device_id' => $device, 'employee_id' => $this->employee, 'external_id' => '42']);
+        $event = ['external_event_id' => 'notify-001', 'external_id' => '42', 'event' => 'in', 'occurred_at' => '2026-11-17 08:00:00', 'work_date' => '2026-11-17'];
+        $this->withToken($token)->postJson('/api/fingerprint/events', $event)->assertOk();
+        $this->withToken($token)->postJson('/api/fingerprint/events', $event)->assertJsonPath('status', 'duplicate');
+        $this->assertDatabaseCount('employee_notifications', 1);
+        $notification = DB::table('employee_notifications')->first();
+        $this->assertSame($this->worker->id, $notification->user_id);
+        $this->assertStringContainsString('sidik jari', $notification->body);
+        $this->withToken($token)->postJson('/api/fingerprint/events', [...$event, 'external_event_id' => 'notify-002'])->assertUnprocessable();
+        $this->assertDatabaseCount('employee_notifications', 1);
+    }
+
+    public function test_notifications_can_only_be_read_and_deleted_by_owner_without_deleting_attendance_or_audit(): void
+    {
+        app(Attendance::class)->record($this->employee, 'in', 'wfo', 'fingerprint', CarbonImmutable::now(), '2026-11-17');
+        $id = DB::table('employee_notifications')->value('id');
+        $auditCount = DB::table('audit_logs')->count();
+        $this->actingAs($this->supervisor)->patchJson('/notifications/'.$id.'/read')->assertNotFound();
+        $this->deleteJson('/notifications/'.$id)->assertNotFound();
+        $this->getJson('/notifications/feed?after=0')->assertJsonPath('items', [])->assertJsonPath('unread', 0);
+        $this->actingAs($this->worker)->getJson('/notifications/feed?after=0')->assertJsonPath('items.0.id', $id)->assertJsonPath('unread', 1);
+        $this->patchJson('/notifications/'.$id.'/read')->assertOk();
+        $this->getJson('/notifications/feed?after=0')->assertJsonPath('unread', 0);
+        $this->deleteJson('/notifications/'.$id)->assertOk();
+        $this->assertDatabaseCount('employee_notifications', 0);
+        $this->assertDatabaseCount('attendances', 1);
+        $this->assertDatabaseCount('audit_logs', $auditCount);
+    }
+
+    public function test_notification_feed_initializes_cursor_and_delete_all_is_scoped_to_account(): void
+    {
+        app(Attendance::class)->record($this->employee, 'in', 'wfo', 'fingerprint', CarbonImmutable::now(), '2026-11-17');
+        $first = DB::table('employee_notifications')->value('id');
+        $this->actingAs($this->worker)->getJson('/notifications/feed')->assertJsonPath('items', [])->assertJsonPath('cursor', $first)->assertJsonPath('unread', 1);
+        $this->travel(1)->hours();
+        app(Attendance::class)->record($this->employee, 'out', 'wfo', 'fingerprint', CarbonImmutable::now(), '2026-11-17');
+        $this->getJson('/notifications/feed?after='.$first)->assertJsonCount(1, 'items')->assertJsonPath('items.0.event', 'attendance.out');
+        Access::audit($this->supervisor->id, 'password.change', 'user:'.$this->supervisor->id);
+        $this->postJson('/notifications/read-all')->assertOk();
+        $this->getJson('/notifications/feed')->assertJsonPath('unread', 0);
+        $this->deleteJson('/notifications')->assertOk();
+        $this->assertDatabaseMissing('employee_notifications', ['user_id' => $this->worker->id]);
+        $this->assertDatabaseHas('employee_notifications', ['user_id' => $this->supervisor->id]);
+    }
+
+    public function test_notification_storage_keeps_only_latest_200_and_excludes_password_values(): void
+    {
+        for ($i = 0; $i < 205; $i++) {
+            Access::audit($this->worker->id, 'password.change', 'user:'.$this->worker->id, null, ['password' => 'NEVER_INCLUDE_THIS_SECRET']);
+        }
+        $this->assertDatabaseCount('employee_notifications', 200);
+        $this->actingAs($this->worker)->getJson('/notifications')->assertJsonPath('total', 200)->assertJsonCount(20, 'data')->assertDontSee('NEVER_INCLUDE_THIS_SECRET');
+        $this->assertDatabaseCount('audit_logs', 205);
+    }
+
+    public function test_schedule_and_published_review_notify_affected_employee(): void
+    {
+        $this->actingAs($this->admin)->post('/manage/schedules', ['employee_id' => $this->employee, 'shift_id' => $this->shift, 'work_date' => '2026-11-18'])->assertRedirect();
+        $this->assertDatabaseHas('employee_notifications', ['user_id' => $this->worker->id, 'event' => 'schedules.save']);
+        Access::audit($this->admin->id, 'review.publish', 'employee:'.$this->employee.':period:'.$this->period, null, ['status' => 'published']);
+        $this->assertDatabaseHas('employee_notifications', ['user_id' => $this->worker->id, 'event' => 'review.publish']);
     }
 }
