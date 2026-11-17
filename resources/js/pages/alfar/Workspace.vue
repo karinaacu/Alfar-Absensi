@@ -28,6 +28,12 @@ import {
 } from '@lucide/vue';
 import QRCode from 'qrcode';
 import { computed, onBeforeUnmount, ref } from 'vue';
+import TechnicalHint from '@/components/alfar/TechnicalHint.vue';
+import {
+    companyWidePermissions,
+    permissionLabel,
+    scopeLabel,
+} from '@/lib/accessLabels';
 import DataForm, { type Field } from '@/components/alfar/DataForm.vue';
 
 interface Row {
@@ -756,14 +762,24 @@ const roleEditor = ref(false);
 function editRole(role?: Role) {
     roleForm.id = role?.id ?? null;
     roleForm.name = role?.name ?? '';
-    roleForm.grants = role?.grants.map((g) => ({ ...g })) ?? [];
+    roleForm.grants =
+        role?.grants.map((g) => ({
+            ...g,
+            scope: companyWidePermissions.includes(g.permission)
+                ? 'all'
+                : g.scope,
+        })) ?? [];
     roleEditor.value = true;
 }
 function toggleGrant(permission: string, checked: boolean) {
     roleForm.grants = roleForm.grants.filter(
         (g) => g.permission !== permission,
     );
-    if (checked) roleForm.grants.push({ permission, scope: 'self' });
+    if (checked)
+        roleForm.grants.push({
+            permission,
+            scope: companyWidePermissions.includes(permission) ? 'all' : 'self',
+        });
 }
 const assignUser = ref('');
 const assignedRoles = ref<number[]>([]);
@@ -2716,14 +2732,14 @@ onBeforeUnmount(() => {
                     <section v-if="has('roles.manage')" class="panel">
                         <div class="panel-heading">
                             <div>
-                                <h2>Role & cakupan data</h2>
+                                <h2>Peran dan cakupan akses</h2>
                                 <p>
                                     Izin mengelola akun terpisah dari izin
                                     membaca laporan.
                                 </p>
                             </div>
                             <button class="primary" @click="editRole()">
-                                <Plus :size="16" />Buat role
+                                <Plus :size="16" />Buat peran
                             </button>
                         </div>
                         <div
@@ -2737,7 +2753,7 @@ onBeforeUnmount(() => {
                                     >{{ role.grants.length }} izin ·
                                     {{
                                         role.grants
-                                            .map((g) => g.scope)
+                                            .map((g) => scopeLabel(g.scope))
                                             .filter(
                                                 (x, i, a) => a.indexOf(x) === i,
                                             )
@@ -2750,7 +2766,7 @@ onBeforeUnmount(() => {
                             </button>
                         </div>
                         <p v-if="!roles.length" class="table-empty">
-                            Buat role sesuai kebutuhan organisasi.
+                            Buat peran sesuai kebutuhan organisasi.
                         </p>
                     </section>
                     <form
@@ -2758,7 +2774,7 @@ onBeforeUnmount(() => {
                         class="panel role-assignment"
                         @submit.prevent="assignRoles"
                     >
-                        <h2>Tetapkan role ke akun</h2>
+                        <h2>Tetapkan peran ke akun</h2>
                         <select
                             v-model="assignUser"
                             required
@@ -2973,7 +2989,7 @@ onBeforeUnmount(() => {
                 class="modal-card role-editor"
                 role="dialog"
                 aria-modal="true"
-                aria-label="Pengaturan role"
+                aria-label="Pengaturan peran"
                 @submit.prevent="
                     roleForm.post('/manage/roles', {
                         preserveScroll: true,
@@ -2989,52 +3005,93 @@ onBeforeUnmount(() => {
                 >
                     <X :size="21" />
                 </button>
-                <h2>{{ roleForm.id ? 'Ubah role' : 'Buat role' }}</h2>
+                <h2>{{ roleForm.id ? 'Ubah peran' : 'Buat peran' }}</h2>
                 <label
-                    >Nama role<input v-model="roleForm.name" required
+                    >Nama peran<input v-model="roleForm.name" required
                 /></label>
-                <p class="muted">
-                    self = diri sendiri · reports = bawahan langsung ·
-                    department = satu divisi · all = seluruh data. Administrasi
-                    master dan akun harus memakai all.
+                <p class="muted role-guidance">
+                    Pilih kegiatan yang boleh dilakukan oleh pemegang peran ini,
+                    lalu tentukan data siapa yang dapat diakses. Ikon
+                    <span class="hint-example">!</span> menampilkan kode teknis
+                    sebagai informasi tambahan.
                 </p>
+                <div class="grant-column-headings">
+                    <span>Kegiatan yang diizinkan</span
+                    ><span>Cakupan akses</span>
+                </div>
                 <div
                     v-for="permission in permissionCatalog"
                     :key="permission"
                     class="grant-row"
                 >
-                    <label
-                        ><input
-                            type="checkbox"
-                            :checked="
-                                roleForm.grants.some(
-                                    (g) => g.permission === permission,
-                                )
-                            "
-                            @change="
-                                toggleGrant(
-                                    permission,
-                                    ($event.target as HTMLInputElement).checked,
-                                )
-                            "
-                        />{{ permission }}</label
-                    ><template
+                    <div class="grant-permission">
+                        <label :for="`permission-${permission}`"
+                            ><input
+                                :id="`permission-${permission}`"
+                                type="checkbox"
+                                :checked="
+                                    roleForm.grants.some(
+                                        (g) => g.permission === permission,
+                                    )
+                                "
+                                @change="
+                                    toggleGrant(
+                                        permission,
+                                        ($event.target as HTMLInputElement)
+                                            .checked,
+                                    )
+                                "
+                            /><span>{{
+                                permissionLabel(permission)
+                            }}</span></label
+                        ><TechnicalHint :code="permission" />
+                    </div>
+                    <div
                         v-for="grant in roleForm.grants.filter(
                             (g) => g.permission === permission,
                         )"
                         :key="grant.permission"
-                        ><select v-model="grant.scope">
-                            <option v-for="scope in scopeCatalog" :key="scope">
-                                {{ scope }}
-                            </option>
-                        </select></template
+                        class="grant-scope"
+                    >
+                        <select
+                            v-model="grant.scope"
+                            :aria-label="`Cakupan akses untuk ${permissionLabel(permission)}`"
+                            :disabled="
+                                companyWidePermissions.includes(permission)
+                            "
+                        >
+                            <option
+                                v-for="scope in companyWidePermissions.includes(
+                                    permission,
+                                )
+                                    ? ['all']
+                                    : scopeCatalog"
+                                :key="scope"
+                                :value="scope"
+                            >
+                                {{ scopeLabel(scope) }}
+                            </option></select
+                        ><TechnicalHint :code="grant.scope" />
+                        <small
+                            v-if="companyWidePermissions.includes(permission)"
+                            >Berlaku untuk seluruh perusahaan.</small
+                        >
+                    </div>
+                    <span
+                        v-if="
+                            !roleForm.grants.some(
+                                (g) => g.permission === permission,
+                            )
+                        "
+                        class="grant-not-selected"
+                        >Belum diizinkan</span
                     >
                 </div>
                 <p v-for="error in roleForm.errors" :key="error" class="error">
                     {{ error }}
                 </p>
                 <button class="primary" :disabled="roleForm.processing">
-                    Simpan role & izin
+                    Simpan peran dan hak akses
                 </button>
             </form>
         </div>

@@ -120,14 +120,14 @@ class ManageController extends Controller
                     DB::table('schedules')->updateOrInsert(['employee_id' => $data['employee_id'], 'work_date' => $data['work_date']], [...$data, 'scheduled_in' => $in, 'scheduled_out' => $out, 'tolerance_minutes' => $shift->tolerance_minutes, 'created_at' => now(), 'updated_at' => now()]);
                     break;
                 case 'roles':
-                    $data = $request->validate(['id' => 'nullable|exists:roles,id', 'name' => 'required|string|max:150', 'grants' => 'present|array', 'grants.*.permission' => ['required', Rule::in(Access::PERMISSIONS), 'distinct'], 'grants.*.scope' => ['required', Rule::in(Access::SCOPES)]]);
+                    $data = $request->validate(['id' => 'nullable|exists:roles,id', 'name' => 'required|string|max:150', 'grants' => 'present|array', 'grants.*.permission' => ['required', Rule::in(Access::PERMISSIONS), 'distinct'], 'grants.*.scope' => ['required', Rule::in(Access::SCOPES)]], ['name.required' => 'Nama peran wajib diisi.', 'name.max' => 'Nama peran maksimal 150 karakter.', 'name.string' => 'Nama peran harus berupa teks.', 'id.exists' => 'Peran tidak ditemukan.', 'grants.present' => 'Pilih hak akses untuk peran ini.', 'grants.array' => 'Pilihan hak akses tidak valid.', 'grants.*.permission.in' => 'Hak akses yang dipilih tidak tersedia.', 'grants.*.permission.distinct' => 'Hak akses yang sama hanya boleh dipilih satu kali.', 'grants.*.permission.required' => 'Pilih hak akses yang ingin diberikan.', 'grants.*.scope.in' => 'Cakupan akses tidak tersedia.', 'grants.*.scope.required' => 'Pilih cakupan akses.']);
                     foreach ($data['grants'] as $g) {
                         if (in_array($g['permission'], ['roles.manage', 'accounts.manage', 'organization.manage', 'kpi.manage', 'devices.manage', 'qr.display']) && $g['scope'] !== 'all') {
-                            throw ValidationException::withMessages(['grants' => 'Administrasi master/akun memerlukan cakupan all; akses laporan diberikan terpisah.']);
+                            throw ValidationException::withMessages(['grants' => 'Pengelolaan organisasi, akun, peran, perangkat, target, dan tampilan QR berlaku untuk seluruh perusahaan. Izin melihat laporan diberikan secara terpisah.']);
                         }
                     }
                     $id = $data['id'] ?? null;
-                    validator($data, ['name' => Rule::unique('roles')->ignore($id)])->validate();
+                    validator($data, ['name' => Rule::unique('roles')->ignore($id)], ['name.unique' => 'Nama peran sudah digunakan. Pilih nama lain.'])->validate();
                     if ($id) {
                         $before = ['role' => DB::table('roles')->where('id', (int) ($id))->first(), 'grants' => DB::table('role_grants')->where('role_id', $id)->get()];
                         DB::table('roles')->where('id', $id)->update(['name' => $data['name'], 'updated_at' => now()]);
