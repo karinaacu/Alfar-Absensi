@@ -126,7 +126,7 @@ Setiap akun hanya dapat membaca, menandai dibaca, dan menghapus notifikasinya se
 
 ## Penjadwalan massal dan dropdown
 
-Buka **Kehadiran → Jadwal karyawan → Tetapkan jadwal**. Pilih beberapa karyawan melalui dropdown pencarian nama/jabatan/divisi, atau tekan **Pilih semua** untuk seluruh karyawan aktif yang tersedia. Akun tidak aktif ditolak server.
+Buka **Kehadiran → Jadwal karyawan → Tetapkan jadwal**. Pilih beberapa karyawan melalui dropdown pencarian nama/jabatan/divisi, atau tekan **Pilih semua** untuk seluruh karyawan aktif yang tersedia. Akun tidak aktif ditolak server. Filter divisi menampilkan nama divisi dan membatasi daftar karyawan yang ditampilkan. Pilih semua menambahkan karyawan dari divisi yang sedang difilter; pilihan dari divisi lain tetap disimpan sampai dikosongkan.
 
 Pilih shift, tanggal mulai, lalu pilihan cepat **1 minggu**, **1 bulan**, **3 bulan**, atau rentang sendiri. Pilihan minggu mencakup 7 hari kalender; pilihan bulan mengikuti bulan kalender dari tanggal mulai. Pilih hari kerja yang digunakan; semua hari dipilih secara awal, termasuk akhir pekan. Ringkasan menampilkan jumlah karyawan × hari kerja sebelum disimpan.
 

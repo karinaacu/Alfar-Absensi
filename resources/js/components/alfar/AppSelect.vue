@@ -128,9 +128,7 @@ async function show() {
 function choose(option: SelectOption) {
     if (option.disabled) return;
     if (props.multiple) {
-        const values = props.options
-            .filter((o) => isSelected(o.value))
-            .map((o) => o.value);
+        const values = [...selected.value] as (string | number)[];
         update(
             isSelected(option.value)
                 ? values.filter((v) => String(v) !== String(option.value))
@@ -145,9 +143,7 @@ function chooseAll(filteredOnly = false) {
     const options = (filteredOnly ? filtered.value : props.options).filter(
         (o) => !o.disabled,
     );
-    const values = props.options
-        .filter((o) => isSelected(o.value))
-        .map((o) => o.value);
+    const values = [...selected.value] as (string | number)[];
     update([
         ...new Map(
             [...values, ...options.map((o) => o.value)].map((v) => [
@@ -279,11 +275,8 @@ onBeforeUnmount(() => close());
                     <p v-if="!filtered.length">Tidak ada pilihan yang cocok.</p>
                 </div>
                 <div v-if="multiple" class="alfar-select-footer">
-                    {{ selected.length }} dari
-                    {{ options.length }} dipilih<button
-                        type="button"
-                        @click="close(true)"
-                    >
+                    {{ selected.length }} dipilih · {{ options.length }} pilihan
+                    tersedia<button type="button" @click="close(true)">
                         Selesai
                     </button>
                 </div>

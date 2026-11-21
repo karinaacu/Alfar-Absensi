@@ -353,7 +353,7 @@ function confirmDeletion() {
                     </p>
                     <button
                         v-if="canManage && schedules.length"
-                        class="text-button danger-button"
+                        class="text-button danger-button period-delete-button"
                         @click="remove(bounds.from, bounds.to)"
                     >
                         Hapus jadwal pada periode ini
@@ -467,6 +467,9 @@ function confirmDeletion() {
     </Dialog>
 </template>
 <style scoped>
+.period-delete-button {
+    margin-top: 24px;
+}
 .employee-schedules {
     grid-column: 1/-1;
     min-width: 0;

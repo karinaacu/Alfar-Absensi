@@ -11,6 +11,7 @@ const props = defineProps<{
         active?: boolean | number;
     }[];
     shifts: { id: number; name: string }[];
+    departments?: { id: number; name: string }[];
 }>();
 const emit = defineEmits<{ saved: [] }>();
 const dateString = (d: Date) =>
@@ -21,6 +22,7 @@ const parse = (s: string) => {
 };
 const today = dateString(new Date());
 const preset = ref('week');
+const department = ref('');
 const form = useForm({
     employee_ids: [] as number[],
     shift_id: '' as string | number,
@@ -32,8 +34,34 @@ const form = useForm({
 const available = computed(() =>
     props.employees.filter((e) => e.active !== false && e.active !== 0),
 );
+const departmentOptions = computed(() => [
+    { value: '', label: 'Semua divisi' },
+    ...[
+        ...new Set(
+            [
+                ...(props.departments || []).map((d) => d.name),
+                ...available.value.map((e) => e.department),
+            ].filter(Boolean),
+        ),
+    ]
+        .sort((a, b) => a.localeCompare(b, 'id'))
+        .map((name) => ({ value: name, label: name })),
+]);
+const filteredEmployees = computed(() =>
+    available.value.filter(
+        (e) => !department.value || e.department === department.value,
+    ),
+);
+function selectVisible() {
+    form.employee_ids = [
+        ...new Set([
+            ...form.employee_ids,
+            ...filteredEmployees.value.map((e) => e.id),
+        ]),
+    ];
+}
 const options = computed(() =>
-    available.value.map((e) => ({
+    filteredEmployees.value.map((e) => ({
         value: e.id,
         label: e.name,
         description: `${e.position} · ${e.department}`,
@@ -101,14 +129,21 @@ const total = computed(() => days.value * form.employee_ids.length);
             Pilih karyawan, shift, dan rentang tanggal dalam satu kali
             penyimpanan.
         </p>
+        <label
+            >Filter divisi<AppSelect
+                v-model="department"
+                :options="departmentOptions"
+                aria-label="Filter divisi jadwal massal"
+        /></label>
         <div class="bulk-section-heading">
             <label id="schedule-employees-label">Karyawan</label
             ><button
                 type="button"
                 class="text-button"
-                @click="form.employee_ids = available.map((e) => e.id)"
+                :disabled="!filteredEmployees.length || form.processing"
+                @click="selectVisible"
             >
-                Pilih semua ({{ available.length }})</button
+                Pilih semua ({{ filteredEmployees.length }})</button
             ><button
                 v-if="form.employee_ids.length"
                 type="button"
@@ -126,7 +161,8 @@ const total = computed(() => days.value * form.employee_ids.length);
             placeholder="Pilih satu atau beberapa karyawan"
         /><small
             >{{ form.employee_ids.length }} karyawan dipilih. Cari berdasarkan
-            nama, jabatan, atau divisi.</small
+            nama, jabatan, atau divisi. Pilihan dari divisi lain tetap
+            disimpan.</small
         ><label
             >Shift kerja<AppSelect
                 v-model="form.shift_id"

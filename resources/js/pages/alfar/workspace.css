@@ -2042,3 +2042,30 @@ td .text-button + .text-button {
     --accent: #f1edff;
     --accent-foreground: #5546c8;
 }
+/* Confirmation actions keep the same clear contrast in every theme. */
+.alfar-confirmation [data-slot='dialog-title'] {
+    color: #20263e;
+}
+.alfar-confirmation [data-slot='dialog-description'] {
+    color: #56617a;
+}
+.alfar-confirmation [data-slot='button'][data-variant='destructive'] {
+    background: #dc2626;
+    color: #fff;
+    border: 1px solid #dc2626;
+    box-shadow: 0 2px 5px #dc262619;
+}
+.alfar-confirmation
+    [data-slot='button'][data-variant='destructive']:hover:not(:disabled) {
+    background: #b91c1c;
+    border-color: #b91c1c;
+}
+.alfar-confirmation [data-slot='button'][data-variant='outline'] {
+    background: #fff;
+    color: #374151;
+    border: 1px solid #cbd5e1;
+}
+.alfar-confirmation
+    [data-slot='button'][data-variant='outline']:hover:not(:disabled) {
+    background: #f1f5f9;
+}

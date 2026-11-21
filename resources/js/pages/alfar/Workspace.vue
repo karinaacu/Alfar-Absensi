@@ -3521,6 +3521,7 @@ function confirmDeletion() {
                     <X :size="21" /></button
                 ><BulkScheduleForm
                     :employees="employees"
+                    :departments="departments"
                     :shifts="shifts"
                     @saved="bulkScheduleOpen = false"
                 />
