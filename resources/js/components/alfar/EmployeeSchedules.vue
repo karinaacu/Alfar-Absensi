@@ -1,4 +1,14 @@
 <script setup lang="ts">
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+
 import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import { router } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
@@ -168,24 +178,28 @@ function move(direction: number) {
     } else date.setDate(date.getDate() + direction * 7);
     cursor.value = key(date);
 }
+const deletion = ref<{ employeeId: number; from: string; to: string } | null>(
+    null,
+);
+const deleting = ref(false);
 function remove(from: string, to: string) {
-    if (!selected.value) return;
-    const id = selected.value.id;
-    toast('Hapus jadwal yang dipilih?', {
-        description: 'Jadwal dengan catatan absensi tidak akan dihapus.',
-        action: {
-            label: 'Hapus jadwal',
-            onClick: () =>
-                router.delete(`/employees/${id}/schedules`, {
-                    data: { from, to },
-                    preserveScroll: true,
-                    onSuccess: () => {
-                        void load();
-                    },
-                }),
+    if (selected.value)
+        deletion.value = { employeeId: selected.value.id, from, to };
+}
+function confirmDeletion() {
+    if (!deletion.value || deleting.value) return;
+    const item = deletion.value;
+    deleting.value = true;
+    router.delete(`/employees/${item.employeeId}/schedules`, {
+        data: { from: item.from, to: item.to },
+        preserveScroll: true,
+        onSuccess: () => {
+            deletion.value = null;
+            void load();
         },
-        cancel: { label: 'Batal', onClick: () => {} },
-        duration: 12000,
+        onFinish: () => {
+            deleting.value = false;
+        },
     });
 }
 </script>
@@ -406,6 +420,51 @@ function remove(from: string, to: string) {
             </div></template
         >
     </section>
+    <Dialog
+        :open="!!deletion"
+        @update:open="
+            (value) => {
+                if (!value && !deleting) deletion = null;
+            }
+        "
+    >
+        <DialogContent
+            class="alfar-confirmation"
+            :show-close-button="!deleting"
+            @escape-key-down="
+                (event) => {
+                    if (deleting) event.preventDefault();
+                }
+            "
+            @interact-outside="
+                (event) => {
+                    if (deleting) event.preventDefault();
+                }
+            "
+        >
+            <DialogHeader
+                ><DialogTitle>Hapus jadwal yang dipilih?</DialogTitle
+                ><DialogDescription
+                    >Jadwal {{ deletion?.from }} sampai {{ deletion?.to }} akan
+                    dihapus. Jadwal yang sudah memiliki catatan absensi tetap
+                    disimpan.</DialogDescription
+                ></DialogHeader
+            >
+            <DialogFooter
+                ><Button
+                    variant="outline"
+                    :disabled="deleting"
+                    @click="deletion = null"
+                    >Batal</Button
+                ><Button
+                    variant="destructive"
+                    :disabled="deleting"
+                    @click="confirmDeletion"
+                    >{{ deleting ? 'Menghapus…' : 'Hapus jadwal' }}</Button
+                ></DialogFooter
+            >
+        </DialogContent>
+    </Dialog>
 </template>
 <style scoped>
 .employee-schedules {

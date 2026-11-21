@@ -56,7 +56,16 @@ import BulkScheduleForm from '@/components/alfar/BulkScheduleForm.vue';
 import SearchInput from '@/components/alfar/SearchInput.vue';
 import EmployeeSchedules from '@/components/alfar/EmployeeSchedules.vue';
 import AttendanceReport from '@/components/alfar/AttendanceReport.vue';
-import { toast } from 'vue-sonner';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+
 import DataForm, { type Field } from '@/components/alfar/DataForm.vue';
 
 interface Row {
@@ -1042,18 +1051,23 @@ const filteredAccounts = computed(() =>
             .includes(accountQuery.value.toLocaleLowerCase('id')),
     ),
 );
+const deletion = ref<{ entity: string; id: number; name: string } | null>(null);
+const deleting = ref(false);
 function removeItem(entity: string, id: number, name: string) {
-    toast(`Hapus ${name}?`, {
-        description: 'Riwayat yang sudah tercatat tetap disimpan.',
-        action: {
-            label: 'Hapus',
-            onClick: () =>
-                router.delete(`/manage/${entity}/${id}`, {
-                    preserveScroll: true,
-                }),
+    deletion.value = { entity, id, name };
+}
+function confirmDeletion() {
+    if (!deletion.value || deleting.value) return;
+    const item = deletion.value;
+    deleting.value = true;
+    router.delete(`/manage/${item.entity}/${item.id}`, {
+        preserveScroll: true,
+        onSuccess: () => {
+            deletion.value = null;
         },
-        cancel: { label: 'Batal', onClick: () => {} },
-        duration: 12000,
+        onFinish: () => {
+            deleting.value = false;
+        },
     });
 }
 </script>
@@ -3286,6 +3300,50 @@ function removeItem(entity: string, id: number, name: string) {
                 </footer>
             </main>
         </div>
+        <Dialog
+            :open="!!deletion"
+            @update:open="
+                (value) => {
+                    if (!value && !deleting) deletion = null;
+                }
+            "
+        >
+            <DialogContent
+                class="alfar-confirmation"
+                :show-close-button="!deleting"
+                @escape-key-down="
+                    (event) => {
+                        if (deleting) event.preventDefault();
+                    }
+                "
+                @interact-outside="
+                    (event) => {
+                        if (deleting) event.preventDefault();
+                    }
+                "
+            >
+                <DialogHeader
+                    ><DialogTitle>Hapus {{ deletion?.name }}?</DialogTitle
+                    ><DialogDescription
+                        >Data akan dihapus dari daftar aktif. Riwayat yang sudah
+                        tercatat tetap disimpan.</DialogDescription
+                    ></DialogHeader
+                >
+                <DialogFooter
+                    ><Button
+                        variant="outline"
+                        :disabled="deleting"
+                        @click="deletion = null"
+                        >Batal</Button
+                    ><Button
+                        variant="destructive"
+                        :disabled="deleting"
+                        @click="confirmDeletion"
+                        >{{ deleting ? 'Menghapus…' : 'Hapus' }}</Button
+                    ></DialogFooter
+                >
+            </DialogContent>
+        </Dialog>
         <div v-if="modal" class="modal-backdrop" @click.self="modal = null">
             <section
                 class="modal-card"

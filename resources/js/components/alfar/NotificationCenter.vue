@@ -1,4 +1,14 @@
 <script setup lang="ts">
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+
 import { onMounted, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import {
@@ -35,7 +45,7 @@ async function load() {
     }
 }
 async function act(path: string, method: string) {
-    if (working.value) return;
+    if (working.value) return false;
     working.value = true;
     try {
         const data = await notificationRequest<{ message: string }>(
@@ -45,25 +55,40 @@ async function act(path: string, method: string) {
         toast.success(data.message);
         await load();
         await refreshNotificationFeed(true);
+        return true;
     } catch {
         /* The request helper shows a single toast. */
+        return false;
     } finally {
         working.value = false;
     }
 }
+const deletion = ref<{
+    path: string;
+    title: string;
+    description: string;
+    label: string;
+} | null>(null);
 function deleteAll() {
-    toast.warning('Hapus semua notifikasi?', {
+    deletion.value = {
+        path: '/notifications',
+        title: 'Hapus semua notifikasi?',
         description:
             'Notifikasi pribadi dihapus. Data absensi dan riwayat audit tetap tersimpan.',
-        action: {
-            label: 'Hapus semua',
-            onClick: () => {
-                void act('/notifications', 'DELETE');
-            },
-        },
-        cancel: { label: 'Batal', onClick: () => {} },
-        duration: 10000,
-    });
+        label: 'Hapus semua',
+    };
+}
+function deleteOne(item: EmployeeNotification) {
+    deletion.value = {
+        path: `/notifications/${item.id}`,
+        title: 'Hapus notifikasi ini?',
+        description: `Notifikasi “${item.title}” akan dihapus dari akun Anda. Data absensi dan riwayat audit tetap tersimpan.`,
+        label: 'Hapus notifikasi',
+    };
+}
+async function confirmDeletion() {
+    if (!deletion.value || working.value) return;
+    if (await act(deletion.value.path, 'DELETE')) deletion.value = null;
 }
 const formatDate = (value: string) =>
     new Intl.DateTimeFormat('id-ID', {
@@ -138,7 +163,7 @@ onMounted(() => {
                     class="text-button danger-button"
                     :disabled="working"
                     :aria-label="`Hapus notifikasi ${item.title}`"
-                    @click="act(`/notifications/${item.id}`, 'DELETE')"
+                    @click="deleteOne(item)"
                 >
                     Hapus
                 </button>
@@ -169,6 +194,49 @@ onMounted(() => {
             </button>
         </div>
     </section>
+    <Dialog
+        :open="!!deletion"
+        @update:open="
+            (value) => {
+                if (!value && !working) deletion = null;
+            }
+        "
+    >
+        <DialogContent
+            class="alfar-confirmation"
+            :show-close-button="!working"
+            @escape-key-down="
+                (event) => {
+                    if (working) event.preventDefault();
+                }
+            "
+            @interact-outside="
+                (event) => {
+                    if (working) event.preventDefault();
+                }
+            "
+        >
+            <DialogHeader
+                ><DialogTitle>{{ deletion?.title }}</DialogTitle
+                ><DialogDescription>{{
+                    deletion?.description
+                }}</DialogDescription></DialogHeader
+            >
+            <DialogFooter
+                ><Button
+                    variant="outline"
+                    :disabled="working"
+                    @click="deletion = null"
+                    >Batal</Button
+                ><Button
+                    variant="destructive"
+                    :disabled="working"
+                    @click="confirmDeletion"
+                    >{{ working ? 'Menghapus…' : deletion?.label }}</Button
+                ></DialogFooter
+            >
+        </DialogContent>
+    </Dialog>
 </template>
 <style scoped>
 .notification-actions,
