@@ -650,6 +650,9 @@ function confirmDeletion() {
     border-color: #5945e9;
 }
 .day-detail {
+    margin-top: 20px;
+    align-items: center;
+    line-height: 1.7;
     display: flex;
     flex-wrap: wrap;
     gap: 16px;

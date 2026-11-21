@@ -2069,3 +2069,16 @@ td .text-button + .text-button {
     [data-slot='button'][data-variant='outline']:hover:not(:disabled) {
     background: #f1f5f9;
 }
+.alfar-app .shift-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 20px 24px;
+}
+@media (max-width: 600px) {
+    .alfar-app .shift-card-actions {
+        padding: 18px;
+    }
+    .alfar-app .shift-card-actions > button {
+        width: 100%;
+    }
+}

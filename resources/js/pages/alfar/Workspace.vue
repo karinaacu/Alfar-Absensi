@@ -2797,12 +2797,11 @@ function confirmDeletion() {
                                     Ubah
                                 </button>
                             </div>
-                            <button
-                                class="text-button padded"
-                                @click="schedule"
-                            >
-                                Tetapkan jadwal <ArrowRight :size="15" />
-                            </button>
+                            <div class="shift-card-actions">
+                                <Button @click="schedule"
+                                    >Tetapkan jadwal <ArrowRight :size="15"
+                                /></Button>
+                            </div>
                         </section>
                         <section
                             v-if="tab === 'periods' && has('kpi.manage')"
