@@ -25,8 +25,16 @@ import {
     Users,
     X,
 } from '@lucide/vue';
-import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import {
+    computed,
+    ref,
+    watch,
+    nextTick,
+    onMounted,
+    onBeforeUnmount,
+} from 'vue';
 import { useMediaQuery } from '@vueuse/core';
+import ActionCenter from '@/components/alfar/ActionCenter.vue';
 import NotificationCenter from '@/components/alfar/NotificationCenter.vue';
 import {
     unreadNotifications,
@@ -220,6 +228,37 @@ const modal = ref<{
     submit?: string;
 } | null>(null);
 const has = (permission: string) => props.permissions.includes(permission);
+const canUseActionCenter = computed(() =>
+    [
+        'attendance.read',
+        'attendance.approve',
+        'kpi.validate',
+        'kpi.manage',
+        'reviews.publish',
+    ].some(has),
+);
+const attentionDate = ref('');
+const actionDialogOpen = ref(false);
+async function openAction(item: {
+    destination: string;
+    name: string;
+    date: string;
+    entity_id: number;
+    employee_id?: number | null;
+}) {
+    tab.value = item.destination;
+    query.value =
+        item.destination === 'reviews' && !item.employee_id ? '' : item.name;
+    if (item.destination === 'reviews')
+        selectedReport.value = item.employee_id ?? null;
+    attentionDate.value = item.date;
+    await nextTick();
+    document
+        .getElementById(
+            `${item.destination === 'kpi' ? 'target' : 'request'}-${item.entity_id}`,
+        )
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 const menuGroups = computed(() =>
     [
         {
@@ -230,6 +269,18 @@ const menuGroups = computed(() =>
                     label: 'Dasbor',
                     icon: LayoutDashboard,
                     show: true,
+                },
+                {
+                    id: 'follow-ups',
+                    label: 'Perlu ditindaklanjuti',
+                    icon: ClipboardCheck,
+                    show: canUseActionCenter.value,
+                },
+                {
+                    id: 'approvals',
+                    label: 'Pusat persetujuan',
+                    icon: Check,
+                    show: has('attendance.approve') || has('kpi.validate'),
                 },
                 {
                     id: 'notifications',
@@ -1009,7 +1060,7 @@ function removeItem(entity: string, id: number, name: string) {
 
 <template>
     <Head :title="title" />
-    <div class="alfar-app">
+    <div class="alfar-app" :inert="actionDialogOpen || undefined">
         <button
             v-if="sidebarOpen && compactNavigation"
             class="navigation-backdrop"
@@ -1199,8 +1250,24 @@ function removeItem(entity: string, id: number, name: string) {
                     </div>
                 </div>
 
+                <ActionCenter
+                    v-if="tab === 'follow-ups' || tab === 'approvals'"
+                    :view="tab === 'approvals' ? 'approvals' : 'attention'"
+                    :period-id="periodId"
+                    @dialog="actionDialogOpen = $event"
+                    @open="openAction"
+                />
                 <NotificationCenter v-if="tab === 'notifications'" />
                 <template v-if="tab === 'overview'">
+                    <ActionCenter
+                        v-if="canUseActionCenter"
+                        view="attention"
+                        :period-id="periodId"
+                        compact
+                        @dialog="actionDialogOpen = $event"
+                        @open="openAction"
+                        @expand="tab = 'follow-ups'"
+                    />
                     <section class="overview-top">
                         <div class="welcome-card">
                             <span class="pill purple-light"
@@ -1643,6 +1710,8 @@ function removeItem(entity: string, id: number, name: string) {
                         :can-manage="has('organization.manage')"
                     />
                     <AttendanceReport
+                        :initial-search="query"
+                        :initial-date="attentionDate"
                         v-if="tab === 'attendance' && has('attendance.read')"
                     />
                     <template v-if="tab === 'scanner' && has('attendance.scan')"
@@ -1784,7 +1853,11 @@ function removeItem(entity: string, id: number, name: string) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr v-for="r in requests" :key="r.id">
+                                    <tr
+                                        v-for="r in requests"
+                                        :key="r.id"
+                                        :id="`request-${r.id}`"
+                                    >
                                         <td>
                                             {{ employeeName(r.employee_id) }}
                                         </td>
@@ -1920,7 +1993,11 @@ function removeItem(entity: string, id: number, name: string) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr v-for="k in targets" :key="k.id">
+                                    <tr
+                                        v-for="k in targets"
+                                        :id="`target-${k.id}`"
+                                        :key="k.id"
+                                    >
                                         <td>
                                             <strong>{{
                                                 k.definition.name

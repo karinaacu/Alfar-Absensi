@@ -131,7 +131,7 @@ class WorkController extends Controller
 
     public function validateSubmission(Request $r, int $id, Access $a): RedirectResponse
     {
-        $data = $r->validate(['status' => 'required|in:validated,rejected', 'reason' => 'required|string|max:2000']);
+        $data = $r->validate(['status' => 'required|in:validated,rejected', 'reason' => 'required|string|max:2000', 'expected_status' => 'nullable|in:pending']);
         DB::transaction(function () use ($r, $id, $a, $data) {
             $t = DB::table('targets')->where('id', (int) ($id))->first();
             abort_unless($t !== null, 404);
@@ -141,6 +141,7 @@ class WorkController extends Controller
             abort_if(DB::table('reviews')->where('period_id', $p->id)->where('status', 'published')->when($t->employee_id, fn ($q) => $q->where('employee_id', $t->employee_id))->exists(), 422, 'Laporan sudah terbit.');
             $s = DB::table('submissions')->where('target_id', $id)->first();
             abort_unless($s !== null, 404);
+            abort_if(isset($data['expected_status']) && $s->status !== $data['expected_status'], 422, 'Realisasi ini sudah ditinjau. Perbarui antrean sebelum mengambil keputusan.');
             abort_if($s->submitted_by === $r->user()->id && ! $r->user()->is_superadmin, 403, 'Realisasi sendiri tidak boleh divalidasi sendiri.');
             DB::table('submissions')->where('id', $s->id)->update(['status' => $data['status'], 'validated_by' => $r->user()->id, 'updated_at' => now()]);
             Access::audit($r->user()->id, 'kpi.validate', 'submission:'.$s->id, $s, $data, $data['reason']);

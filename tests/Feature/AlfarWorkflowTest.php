@@ -685,6 +685,75 @@ class AlfarWorkflowTest extends TestCase
         $this->getJson('/employees/'.$this->employee.'/calendar?from=2026-01-01&to=2026-11-30')->assertUnprocessable();
     }
 
+    public function test_attention_only_flags_overdue_attendance_and_respects_scope(): void
+    {
+        $this->grant($this->supervisor, 'attendance.read', 'reports');
+        $this->actingAs($this->supervisor)->getJson('/action-center')->assertOk()->assertJsonPath('total', 0);
+        $this->travelTo(CarbonImmutable::parse('2026-11-17 08:11:00'));
+        $this->getJson('/action-center')->assertOk()->assertJsonPath('counts.missing_in', 1)->assertJsonPath('data.0.employee_id', $this->employee);
+        app(Attendance::class)->record($this->employee, 'in', 'wfo', 'web', CarbonImmutable::now(), '2026-11-17');
+        $this->getJson('/action-center')->assertOk()->assertJsonPath('total', 0);
+        $this->travelTo(CarbonImmutable::parse('2026-11-17 18:00:00'));
+        $this->getJson('/action-center')->assertOk()->assertJsonPath('counts.missing_out', 1);
+        $this->getJson('/action-center?from=2026-11-18&to=2026-11-30')->assertOk()->assertJsonPath('total', 0);
+        DB::table('attendances')->where('employee_id', $this->employee)->update(['status' => 'sick', 'clock_in' => null]);
+        $this->getJson('/action-center')->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($this->worker)->getJson('/action-center')->assertForbidden();
+    }
+
+    public function test_approval_center_does_not_leak_requests_or_allow_self_approval(): void
+    {
+        $this->actingAs($this->worker)->post('/attendance/requests', ['type' => 'wfh', 'work_date' => '2026-11-17', 'reason' => 'Kerja dari rumah'])->assertRedirect();
+        $this->grant($this->supervisor, 'attendance.read', 'reports');
+        $this->actingAs($this->supervisor)->getJson('/action-center?view=approvals')->assertOk()->assertJsonPath('total', 0);
+        $this->grant($this->supervisor, 'attendance.approve', 'reports');
+        $data = $this->getJson('/action-center?view=approvals')->assertOk()->assertJsonPath('counts.request', 1)->assertJsonPath('data.0.can_decide', true)->json('data.0');
+        $this->post('/attendance/requests/'.$data['entity_id'].'/decide', ['status' => 'approved', 'decision_note' => 'Disetujui'])->assertRedirect()->assertSessionHasNoErrors();
+        $this->getJson('/action-center?view=approvals')->assertOk()->assertJsonPath('total', 0);
+        DB::table('requests')->where('id', $data['entity_id'])->update(['status' => 'pending']);
+        $this->grant($this->worker, 'attendance.approve', 'self');
+        $this->actingAs($this->worker)->getJson('/action-center?view=approvals')->assertOk()->assertJsonPath('total', 0);
+        $this->postJson('/attendance/requests/'.$data['entity_id'].'/decide', ['status' => 'approved', 'decision_note' => 'Sendiri'])->assertForbidden();
+    }
+
+    public function test_action_center_kpi_queue_tracks_missing_pending_and_stale_decisions(): void
+    {
+        DB::table('periods')->where('id', $this->period)->update(['status' => 'active']);
+        $target = $this->target();
+        $this->grant($this->supervisor, 'kpi.validate', 'reports');
+        $this->actingAs($this->supervisor)->getJson('/action-center?period='.$this->period)->assertOk()->assertJsonPath('counts.kpi_missing', 1);
+        $this->getJson('/action-center?view=approvals&period='.$this->period)->assertOk()->assertJsonPath('total', 0);
+        DB::table('submissions')->insert(['target_id' => $target, 'actual' => 98, 'note' => 'QC perlu ditinjau', 'evidence_path' => 'evidence/test.pdf', 'submitted_by' => $this->worker->id, 'status' => 'pending']);
+        $this->getJson('/action-center?view=approvals&period='.$this->period)->assertOk()->assertJsonPath('counts.kpi_pending', 1)->assertJsonPath('data.0.actual', 98);
+        $this->post('/targets/'.$target.'/validate', ['status' => 'validated', 'reason' => 'Bukti sesuai', 'expected_status' => 'pending'])->assertRedirect()->assertSessionHasNoErrors();
+        $this->postJson('/targets/'.$target.'/validate', ['status' => 'rejected', 'reason' => 'Keputusan dari tab lama', 'expected_status' => 'pending'])->assertUnprocessable();
+        $this->assertDatabaseHas('submissions', ['target_id' => $target, 'status' => 'validated']);
+        $this->getJson('/action-center?view=approvals&period='.$this->period)->assertOk()->assertJsonPath('total', 0);
+        DB::table('submissions')->where('target_id', $target)->update(['status' => 'pending', 'submitted_by' => $this->supervisor->id]);
+        $this->getJson('/action-center?view=approvals&period='.$this->period)->assertOk()->assertJsonPath('total', 0);
+    }
+
+    public function test_review_only_supervisor_opens_incomplete_kpi_in_review_workspace(): void
+    {
+        DB::table('periods')->where('id', $this->period)->update(['status' => 'active']);
+        $this->target();
+        $this->grant($this->supervisor, 'reviews.publish', 'reports');
+        $this->actingAs($this->supervisor)->getJson('/action-center?period='.$this->period)->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.destination', 'reviews')->assertJsonPath('data.0.can_decide', false);
+    }
+
+    public function test_action_center_paginates_all_pending_requests_and_filters_without_account_access_leak(): void
+    {
+        for ($i = 0; $i < 30; $i++) {
+            DB::table('requests')->insert(['employee_id' => $this->employee, 'work_date' => CarbonImmutable::parse('2026-11-01')->addDays($i)->toDateString(), 'type' => 'permission', 'reason' => 'Antrean '.$i, 'payload' => '{}', 'status' => 'pending']);
+        }
+        $this->actingAs($this->admin)->getJson('/action-center?view=approvals')->assertOk()->assertJsonPath('total', 30)->assertJsonPath('last_page', 2)->assertJsonCount(25, 'data');
+        $this->getJson('/action-center?view=approvals&page=2')->assertOk()->assertJsonCount(5, 'data');
+        $this->getJson('/action-center?view=approvals&search=Antrean%2029')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/action-center?from=2026-01-01&to=2026-12-31')->assertUnprocessable();
+        $this->grant($this->supervisor, 'accounts.manage', 'all');
+        $this->actingAs($this->supervisor)->getJson('/action-center')->assertForbidden();
+    }
+
     public function test_browser_scanners_are_independent_without_registration_and_fingerprint_still_requires_its_own_credentials(): void
     {
         $device = DB::table('devices')->insertGetId(['name' => 'Fingerprint pintu A', 'type' => 'fingerprint', 'active' => true, 'token_hash' => hash('sha256', 'fingerprint-test-token')]);

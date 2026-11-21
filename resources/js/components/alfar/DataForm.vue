@@ -71,7 +71,9 @@ function upload(event: Event, key: string) {
     <form class="alfar-form" @submit.prevent="send">
         <h3>{{ title }}</h3>
         <label
-            v-for="field in fields.filter((item) => item.key !== 'id')"
+            v-for="field in fields.filter(
+                (item) => item.key !== 'id' && item.type !== 'hidden',
+            )"
             :key="field.key"
         >
             <span

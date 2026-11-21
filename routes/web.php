@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Alfar\ActionCenterController;
 use App\Http\Controllers\Alfar\AttendanceController;
 use App\Http\Controllers\Alfar\AttendanceReportController;
 use App\Http\Controllers\Alfar\DeleteController;
@@ -21,6 +22,7 @@ Route::middleware(['auth'])->group(function () {
     Route::patch('/notifications/{id}/read', [NotificationController::class, 'read']);
     Route::delete('/notifications', [NotificationController::class, 'destroyAll']);
     Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
+    Route::get('/action-center', [ActionCenterController::class, 'index']);
     Route::get('/dashboard', [WorkController::class, 'index'])->name('dashboard');
     Route::post('/schedules/bulk', [ScheduleController::class, 'bulk']);
     Route::delete('/manage/{entity}/{id}', [DeleteController::class, 'destroy']);

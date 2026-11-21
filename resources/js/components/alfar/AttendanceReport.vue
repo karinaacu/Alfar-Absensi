@@ -3,6 +3,7 @@ import { ref, watch, onBeforeUnmount } from 'vue';
 import { toast } from 'vue-sonner';
 import SearchInput from './SearchInput.vue';
 import AppSelect from './AppSelect.vue';
+const props = defineProps<{ initialSearch?: string; initialDate?: string }>();
 interface Entry {
     work_date: string;
     name: string;
@@ -17,9 +18,9 @@ interface Entry {
 const today = new Date().toLocaleDateString('en-CA', {
     timeZone: 'Asia/Jakarta',
 });
-const from = ref(today.slice(0, 8) + '01'),
-    to = ref(today),
-    search = ref(''),
+const from = ref(props.initialDate || today.slice(0, 8) + '01'),
+    to = ref(props.initialDate || today),
+    search = ref(props.initialSearch || ''),
     page = ref(1),
     last = ref(1),
     total = ref(0),
