@@ -14,18 +14,21 @@ class Attendance
         return DB::transaction(function () use ($employeeId, $source, $time) {
             $employee = DB::table('employees')->where('id', $employeeId)->whereNull('deleted_at')->lockForUpdate()->first();
             abort_unless($employee !== null, 422, 'Profil karyawan tidak aktif.');
-            $schedules = DB::table('schedules')->where('employee_id', $employeeId)->whereBetween('work_date', [$time->subDay()->toDateString(), $time->addDay()->toDateString()])->get();
+            $schedules = DB::table('schedules')->where('employee_id', $employeeId)->where('scheduled_in', '<=', $time->addHours(6))->orderByDesc('scheduled_in')->get();
             $candidates = [];
             foreach ($schedules as $schedule) {
                 $start = CarbonImmutable::parse($schedule->scheduled_in);
                 $end = CarbonImmutable::parse($schedule->scheduled_out);
-                if ($time->lt($start->subMinutes($schedule->checkin_early_minutes)) || $time->gt($end->addMinutes($schedule->checkout_grace_minutes))) {
+                if ($time->lt($start->subMinutes($schedule->checkin_early_minutes))) {
                     continue;
                 }
                 $existing = DB::table('attendances')->where('employee_id', $employeeId)->where('work_date', $schedule->work_date)->first();
+                if (! $existing?->clock_in && $time->toDateString() > $end->toDateString()) {
+                    continue;
+                }
                 $threshold = $start->addMinutes(min($schedule->checkout_after_minutes, (int) $start->diffInMinutes($end)));
                 $event = $existing?->clock_in ? 'out' : 'in';
-                $candidates[] = ['schedule' => $schedule, 'existing' => $existing, 'threshold' => $threshold, 'event' => $event, 'distance' => abs($time->diffInSeconds($event === 'in' ? $start : $end))];
+                $candidates[] = ['schedule' => $schedule, 'existing' => $existing, 'threshold' => $threshold, 'event' => $event, 'distance' => abs($time->diffInSeconds($start))];
             }
             usort($candidates, fn ($a, $b) => $a['distance'] <=> $b['distance']);
             if (! $candidates) {
@@ -42,9 +45,6 @@ class Attendance
             }
             if ($event === 'out' && ($time->lt($chosen['threshold']) || $time->lt(CarbonImmutable::parse($existing->clock_in)->addMinute()))) {
                 throw ValidationException::withMessages(['attendance' => 'Absen masuk sudah tercatat. Absen pulang tersedia mulai '.$chosen['threshold']->format('H:i').'.']);
-            }
-            if ($event === 'in' && $time->gte($chosen['threshold'])) {
-                throw ValidationException::withMessages(['attendance' => 'Absen masuk belum tercatat. Ajukan koreksi kepada atasan.']);
             }
 
             return ['record' => $this->record($employeeId, $event, 'wfo', $source, $time, $chosen['schedule']->work_date), 'event' => $event];
@@ -65,7 +65,7 @@ class Attendance
                 throw ValidationException::withMessages(['attendance' => 'Jadwal tidak ditemukan atau ambigu. Tentukan tanggal kerja.']);
             }
             $schedule = $schedule->first();
-            if ($time->lt(CarbonImmutable::parse($schedule->scheduled_in)->subHours(6)) || $time->gt(CarbonImmutable::parse($schedule->scheduled_out)->addMinutes(max(360, $schedule->checkout_grace_minutes)))) {
+            if ($time->lt(CarbonImmutable::parse($schedule->scheduled_in)->subHours(6))) {
                 throw ValidationException::withMessages(['attendance' => 'Waktu di luar rentang jadwal.']);
             }
             if ($mode === 'wfo' && ! $employee->allow_wfo) {

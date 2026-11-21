@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 
 class Access
 {
-    public const PERMISSIONS = ['organization.manage', 'accounts.manage', 'roles.manage', 'attendance.read', 'attendance.manage', 'attendance.approve', 'attendance.scan', 'devices.manage', 'kpi.manage', 'kpi.submit', 'kpi.validate', 'reviews.publish', 'reports.read'];
+    public const PERMISSIONS = ['organization.manage', 'accounts.manage', 'roles.manage', 'attendance.read', 'attendance.manage', 'attendance.approve', 'attendance.scan', 'devices.manage', 'kpi.manage', 'kpi.submit', 'kpi.validate', 'reviews.publish', 'reports.read', 'payroll.manage', 'payroll.publish', 'payroll.read', 'overtime.approve'];
 
     public const SCOPES = ['self', 'reports', 'department', 'all'];
 

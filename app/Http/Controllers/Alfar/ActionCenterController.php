@@ -14,8 +14,8 @@ class ActionCenterController extends Controller
     public function index(Request $r, Access $a): JsonResponse
     {
         $user = $r->user();
-        abort_unless(collect(['attendance.read', 'attendance.approve', 'kpi.validate', 'kpi.manage', 'reviews.publish'])->contains(fn ($p) => $a->allows($user, $p)), 403);
-        $data = $r->validate(['view' => 'sometimes|in:attention,approvals', 'kind' => 'nullable|in:all,missing_in,missing_out,request,kpi_missing,kpi_pending,kpi_rejected', 'search' => 'nullable|string|max:150', 'period' => 'nullable|integer|exists:periods,id', 'from' => 'nullable|date_format:Y-m-d', 'to' => 'nullable|date_format:Y-m-d', 'page' => 'nullable|integer|min:1']);
+        abort_unless(collect(['attendance.read', 'attendance.approve', 'kpi.validate', 'kpi.manage', 'reviews.publish', 'overtime.approve'])->contains(fn ($p) => $a->allows($user, $p)), 403);
+        $data = $r->validate(['view' => 'sometimes|in:attention,approvals', 'kind' => 'nullable|in:all,missing_in,missing_out,request,kpi_missing,kpi_pending,kpi_rejected,overtime', 'search' => 'nullable|string|max:150', 'period' => 'nullable|integer|exists:periods,id', 'from' => 'nullable|date_format:Y-m-d', 'to' => 'nullable|date_format:Y-m-d', 'page' => 'nullable|integer|min:1']);
         $from = $data['from'] ?? now()->subDays(29)->toDateString();
         $to = $data['to'] ?? now()->toDateString();
         abort_if($from > $to || CarbonImmutable::parse($from)->diffInDays(CarbonImmutable::parse($to)) > 61, 422, 'Rentang kehadiran maksimal 62 hari dan tanggal akhir tidak boleh sebelum awal.');
@@ -50,6 +50,12 @@ class ActionCenterController extends Controller
             }
             $payload = json_decode($row->payload ?? '{}', true);
             $items->push(['id' => 'request-'.$row->id, 'entity_id' => $row->id, 'kind' => 'request', 'name' => $names[$row->employee_id], 'employee_id' => $row->employee_id, 'date' => $row->work_date, 'title' => ($types[$row->type] ?? 'Pengajuan').' menunggu persetujuan', 'detail' => $row->reason, 'clock_in' => $payload['clock_in'] ?? null, 'clock_out' => $payload['clock_out'] ?? null, 'can_decide' => true, 'destination' => 'requests']);
+        }
+        foreach (DB::table('overtime_requests')->whereIn('employee_id', $a->ids($user, 'overtime.approve'))->where('status', 'pending')->get() as $row) {
+            if (! isset($names[$row->employee_id]) || (! $user->is_superadmin && $me?->id === $row->employee_id)) {
+                continue;
+            }
+            $items->push(['id' => 'overtime-'.$row->id, 'entity_id' => $row->id, 'kind' => 'overtime', 'employee_id' => $row->employee_id, 'name' => $names[$row->employee_id], 'date' => $row->work_date, 'title' => 'Lembur '.$row->minutes.' menit menunggu persetujuan', 'detail' => $row->reason.' · '.$row->starts_at.' – '.$row->ends_at.' (istirahat '.$row->break_minutes.' menit)', 'can_decide' => true, 'destination' => 'overtime']);
         }
         $periodId = $data['period'] ?? DB::table('periods')->whereIn('status', ['active', 'review'])->orderByDesc('starts_on')->value('id');
         $validationIds = $a->ids($user, 'kpi.validate');

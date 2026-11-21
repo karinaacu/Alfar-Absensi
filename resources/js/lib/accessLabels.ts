@@ -11,6 +11,10 @@ export const permissionLabels: Record<string, string> = {
     'kpi.submit': 'Isi realisasi kinerja',
     'kpi.validate': 'Validasi realisasi kinerja',
     'reviews.publish': 'Terbitkan dan revisi penilaian kinerja',
+    'payroll.manage': 'Kelola gaji dan draf penggajian',
+    'payroll.publish': 'Periksa dan terbitkan slip gaji',
+    'payroll.read': 'Lihat slip gaji yang sudah diterbitkan',
+    'overtime.approve': 'Tinjau dan setujui lembur',
     'reports.read': 'Lihat laporan kinerja',
 };
 export const scopeLabels: Record<string, string> = {
@@ -25,6 +29,8 @@ export const companyWidePermissions = [
     'roles.manage',
     'devices.manage',
     'kpi.manage',
+    'payroll.manage',
+    'payroll.publish',
 ];
 export const permissionLabel = (code: string) =>
     permissionLabels[code] || 'Izin tambahan';

@@ -43,9 +43,10 @@ class ActivityNotifications
             'metrics.save' => 'Indikator kinerja berhasil disimpan', 'targets.save' => 'Target kinerja berhasil disimpan',
             'devices.save' => 'Perangkat absensi berhasil disimpan', 'device-mappings.save' => 'Identitas perangkat berhasil dihubungkan',
             'schedules.delete' => 'Jadwal kerja dihapus', 'accounts.delete' => 'Akun karyawan dihapus', 'positions.delete' => 'Jabatan dihapus', 'employees.delete' => 'Data karyawan dihapus',
+            'payroll.publish' => 'Slip gaji sudah diterbitkan', 'payroll.profile' => 'Komponen gaji diperbarui', 'payroll.delete' => 'Draf penggajian dihapus', 'payroll.create' => 'Draf penggajian dibuat', 'payroll.policy' => 'Aturan penggajian diperbarui', 'payroll.recalculate' => 'Draf penggajian dihitung ulang', 'payroll.adjust' => 'Penyesuaian gaji disimpan', 'overtime.create' => 'Pengajuan lembur dicatat', 'overtime.decide' => 'Lembur telah ditinjau',
             'password.change' => 'Password berhasil diganti', default => 'Aktivitas berhasil disimpan',
         };
-        $body = $title.'.';
+        $body = $action === 'payroll.publish' ? 'Slip periode '.($data['period'] ?? '').' sudah tersedia pada menu Slip gaji.' : $title.'.';
         if ($action === 'schedules.bulk') {
             $recipients = [$actor, ...DB::table('employees')->whereIn('id', $data['employee_ids'] ?? [])->pluck('user_id')->all()];
             $body = 'Jadwal kerja untuk rentang '.($data['starts_on'] ?? '').' hingga '.($data['ends_on'] ?? '').' telah diperbarui. Periksa jadwal kerja Anda.';

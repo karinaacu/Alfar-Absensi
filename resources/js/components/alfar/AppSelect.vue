@@ -29,6 +29,7 @@ const query = ref('');
 const active = ref(0);
 const trigger = ref<HTMLButtonElement | null>(null);
 const panel = ref<HTMLElement | null>(null);
+const portalTarget = ref<string | HTMLElement>('body');
 const searchInput = ref<HTMLInputElement | null>(null);
 const style = ref<Record<string, string>>({});
 const selected = computed(() =>
@@ -77,10 +78,13 @@ function place() {
         below >= 200 || below >= above
             ? r.bottom + 6
             : Math.max(8, r.top - estimated - 6);
+    const host =
+        portalTarget.value instanceof HTMLElement ? portalTarget.value : null;
+    const hostRect = host?.getBoundingClientRect();
     style.value = {
-        position: 'fixed',
-        top: `${top}px`,
-        left: `${Math.max(12, Math.min(r.left, innerWidth - width - 12))}px`,
+        position: host ? 'absolute' : 'fixed',
+        top: `${top - (hostRect?.top ?? 0) + (host?.scrollTop ?? 0)}px`,
+        left: `${Math.max(12, Math.min(r.left, innerWidth - width - 12)) - (hostRect?.left ?? 0) + (host?.scrollLeft ?? 0)}px`,
         width: `${width}px`,
         maxHeight: `${height}px`,
     };
@@ -110,6 +114,9 @@ async function show() {
         0,
         props.options.findIndex((o) => isSelected(o.value)),
     );
+    portalTarget.value =
+        trigger.value?.closest<HTMLElement>('[data-slot="dialog-content"]') ||
+        'body';
     open.value = true;
     place();
     await nextTick();
@@ -203,7 +210,7 @@ onBeforeUnmount(() => close());
         >
             <span>{{ caption }}</span
             ><ChevronDown :size="16" /></button
-        ><Teleport to="body"
+        ><Teleport :to="portalTarget"
             ><div
                 v-if="open"
                 ref="panel"

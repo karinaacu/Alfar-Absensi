@@ -62,6 +62,7 @@ const labels: Record<string, string> = {
     missing_in: 'Belum masuk',
     missing_out: 'Belum pulang',
     request: 'Pengajuan',
+    overtime: 'Lembur',
     kpi_missing: 'KPI belum lengkap',
     kpi_pending: 'Validasi KPI',
     kpi_rejected: 'KPI perlu perbaikan',
@@ -133,7 +134,7 @@ onBeforeUnmount(() => {
 });
 function fields(item: Item): Field[] {
     return [
-        ...(item.kind !== 'request'
+        ...(!['request', 'overtime'].includes(item.kind)
             ? [
                   {
                       key: 'expected_status',
@@ -147,22 +148,23 @@ function fields(item: Item): Field[] {
             key: 'status',
             label: 'Keputusan',
             required: true,
-            options:
-                item.kind === 'request'
-                    ? [
-                          { value: 'approved', label: 'Setujui' },
-                          { value: 'rejected', label: 'Tolak' },
-                      ]
-                    : [
-                          { value: 'validated', label: 'Validasi realisasi' },
-                          {
-                              value: 'rejected',
-                              label: 'Kembalikan untuk perbaikan',
-                          },
-                      ],
+            options: ['request', 'overtime'].includes(item.kind)
+                ? [
+                      { value: 'approved', label: 'Setujui' },
+                      { value: 'rejected', label: 'Tolak' },
+                  ]
+                : [
+                      { value: 'validated', label: 'Validasi realisasi' },
+                      {
+                          value: 'rejected',
+                          label: 'Kembalikan untuk perbaikan',
+                      },
+                  ],
         },
         {
-            key: item.kind === 'request' ? 'decision_note' : 'reason',
+            key: ['request', 'overtime'].includes(item.kind)
+                ? 'decision_note'
+                : 'reason',
             label: 'Catatan keputusan',
             type: 'textarea',
             required: true,
@@ -216,7 +218,7 @@ function close() {
                 v-for="(label, key) in labels"
                 v-show="
                     (view === 'attention' ||
-                        ['request', 'kpi_pending'].includes(key)) &&
+                        ['request', 'kpi_pending', 'overtime'].includes(key)) &&
                     (!compact || counts[key])
                 "
                 :key="key"
@@ -239,7 +241,9 @@ function close() {
                         .filter(
                             ([key]) =>
                                 view === 'attention' ||
-                                ['request', 'kpi_pending'].includes(key),
+                                ['request', 'kpi_pending', 'overtime'].includes(
+                                    key,
+                                ),
                         )
                         .map(([value, label]) => ({ value, label })),
                 ]"
@@ -375,9 +379,11 @@ function close() {
                     v-if="showForm"
                     title="Keputusan peninjauan"
                     :url="
-                        selected.kind === 'request'
-                            ? `/attendance/requests/${selected.entity_id}/decide`
-                            : `/targets/${selected.entity_id}/validate`
+                        selected.kind === 'overtime'
+                            ? `/overtime/${selected.entity_id}/decide`
+                            : selected.kind === 'request'
+                              ? `/attendance/requests/${selected.entity_id}/decide`
+                              : `/targets/${selected.entity_id}/validate`
                     "
                     :fields="fields(selected)"
                     submit="Simpan keputusan"

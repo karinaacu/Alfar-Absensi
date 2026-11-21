@@ -2030,3 +2030,15 @@ td .text-button + .text-button {
     max-height: calc(100dvh - 32px);
     overflow-y: auto;
 }
+
+.alfar-confirmation.payroll-dialog {
+    max-width: 760px;
+}
+.alfar-app,
+.alfar-confirmation {
+    --primary: #5546e8;
+    --primary-foreground: #fff;
+    --ring: #aaa1ff;
+    --accent: #f1edff;
+    --accent-foreground: #5546c8;
+}

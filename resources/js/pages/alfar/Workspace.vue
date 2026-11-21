@@ -35,6 +35,9 @@ import {
 } from 'vue';
 import { useMediaQuery } from '@vueuse/core';
 import ActionCenter from '@/components/alfar/ActionCenter.vue';
+import PayrollWorkspace from '@/components/alfar/PayrollWorkspace.vue';
+import OvertimeWorkspace from '@/components/alfar/OvertimeWorkspace.vue';
+import LatenessSummary from '@/components/alfar/LatenessSummary.vue';
 import NotificationCenter from '@/components/alfar/NotificationCenter.vue';
 import {
     unreadNotifications,
@@ -244,6 +247,7 @@ const canUseActionCenter = computed(() =>
         'kpi.validate',
         'kpi.manage',
         'reviews.publish',
+        'overtime.approve',
     ].some(has),
 );
 const attentionDate = ref('');
@@ -289,7 +293,10 @@ const menuGroups = computed(() =>
                     id: 'approvals',
                     label: 'Pusat persetujuan',
                     icon: Check,
-                    show: has('attendance.approve') || has('kpi.validate'),
+                    show:
+                        has('attendance.approve') ||
+                        has('kpi.validate') ||
+                        has('overtime.approve'),
                 },
                 {
                     id: 'notifications',
@@ -300,7 +307,7 @@ const menuGroups = computed(() =>
             ],
         },
         {
-            label: '1. Organisasi',
+            label: 'Organisasi',
             items: [
                 {
                     id: 'departments',
@@ -317,7 +324,7 @@ const menuGroups = computed(() =>
             ],
         },
         {
-            label: '2. Tim & hak akses',
+            label: 'Tim & hak akses',
             items: [
                 {
                     id: 'roles',
@@ -342,7 +349,7 @@ const menuGroups = computed(() =>
             ],
         },
         {
-            label: '3. Kehadiran',
+            label: 'Kehadiran',
             items: [
                 {
                     id: 'shifts',
@@ -389,7 +396,7 @@ const menuGroups = computed(() =>
             ],
         },
         {
-            label: '4. Penilaian kinerja',
+            label: 'Penilaian kinerja',
             items: [
                 {
                     id: 'metrics',
@@ -420,6 +427,29 @@ const menuGroups = computed(() =>
                     label: 'Laporan & analisis',
                     icon: ChartNoAxesCombined,
                     show: has('reports.read'),
+                },
+            ],
+        },
+        {
+            label: 'Penggajian',
+            items: [
+                {
+                    id: 'payroll',
+                    label: 'Penggajian',
+                    icon: Building2,
+                    show: has('payroll.manage') || has('payroll.publish'),
+                },
+                {
+                    id: 'payslips',
+                    label: 'Slip gaji',
+                    icon: ClipboardCheck,
+                    show: true,
+                },
+                {
+                    id: 'overtime',
+                    label: 'Lembur',
+                    icon: Clock3,
+                    show: !!props.me || has('overtime.approve'),
                 },
             ],
         },
@@ -865,11 +895,6 @@ function editMaster(entity: string, row: Row) {
                 'Boleh pulang setelah jam masuk (menit)',
                 'number',
             ],
-            [
-                'checkout_grace_minutes',
-                'Batas pindai setelah jam pulang (menit)',
-                'number',
-            ],
         ],
         periods: [
             ['name', 'Nama periode'],
@@ -1271,6 +1296,17 @@ function confirmDeletion() {
                     @dialog="actionDialogOpen = $event"
                     @open="openAction"
                 />
+                <PayrollWorkspace
+                    v-if="tab === 'payroll' || tab === 'payslips'"
+                    :mode="tab === 'payroll' ? 'manage' : 'mine'"
+                    :can-manage="has('payroll.manage')"
+                    :can-publish="has('payroll.publish')"
+                />
+                <OvertimeWorkspace
+                    v-if="tab === 'overtime'"
+                    :can-submit="!!me"
+                />
+                <LatenessSummary v-if="tab === 'my-attendance' && me" mine />
                 <NotificationCenter v-if="tab === 'notifications'" />
                 <template v-if="tab === 'overview'">
                     <ActionCenter
@@ -2734,14 +2770,6 @@ function confirmDeletion() {
                                                 true,
                                                 undefined,
                                                 240,
-                                            ),
-                                            field(
-                                                'checkout_grace_minutes',
-                                                'Batas pindai setelah jam pulang (menit)',
-                                                'number',
-                                                true,
-                                                undefined,
-                                                120,
                                             ),
                                         ])
                                     "

@@ -11,7 +11,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia as Assert;
 use OpenSpout\Common\Entity\Row;
 use OpenSpout\Writer\XLSX\Writer;
@@ -754,6 +753,140 @@ class AlfarWorkflowTest extends TestCase
         $this->actingAs($this->supervisor)->getJson('/action-center')->assertForbidden();
     }
 
+    private function payrollData(): array
+    {
+        return ['name' => 'Gaji uji November', 'starts_on' => '2026-11-01', 'ends_on' => '2026-11-17', 'pays_on' => '2026-11-20', 'employee_ids' => [$this->employee], 'safe_minutes' => 30, 'warning_minutes' => 60, 'free_late_minutes' => 10, 'late_rate' => 500, 'late_cap' => null, 'overtime_rate' => 20000];
+    }
+
+    public function test_very_late_checkin_and_late_checkout_are_recorded_without_cutoff(): void
+    {
+        $attendance = app(Attendance::class);
+        $in = $attendance->automaticRecord($this->employee, 'laptop_camera', CarbonImmutable::parse('2026-11-17 23:00:00'));
+        $this->assertSame('in', $in['event']);
+        $this->assertSame(890, $in['record']->late_minutes);
+        $out = $attendance->automaticRecord($this->employee, 'fingerprint', CarbonImmutable::parse('2026-11-18 06:00:00'));
+        $this->assertSame('out', $out['event']);
+        $this->assertSame('2026-11-17', $out['record']->work_date);
+    }
+
+    public function test_payroll_calculates_lateness_overtime_components_and_publishes_immutable_private_slip(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-17 19:00:00'));
+        app(Attendance::class)->record($this->employee, 'in', 'wfo', 'web', CarbonImmutable::parse('2026-11-17 09:03:00'), '2026-11-17');
+        $this->actingAs($this->worker)->post('/overtime', ['work_date' => '2026-11-17', 'starts_at' => '2026-11-17 17:00:00', 'ends_at' => '2026-11-17 18:45:00', 'break_minutes' => 15, 'reason' => 'Menyelesaikan pesanan'])->assertRedirect()->assertSessionHasNoErrors();
+        $ot = DB::table('overtime_requests')->first();
+        $this->actingAs($this->admin)->post('/overtime/'.$ot->id.'/decide', ['status' => 'approved', 'decision_note' => 'Jam kerja sudah diperiksa'])->assertRedirect()->assertSessionHasNoErrors();
+        $this->post('/payroll/profiles/'.$this->employee, ['base_salary' => 3000000, 'components' => [['name' => 'Tunjangan', 'type' => 'earning', 'amount' => 200000], ['name' => 'Iuran', 'type' => 'deduction', 'amount' => 50000]]])->assertRedirect()->assertSessionHasNoErrors();
+        $this->post('/payroll/runs', $this->payrollData())->assertRedirect()->assertSessionHasNoErrors();
+        $run = DB::table('payroll_runs')->first();
+        $item = DB::table('payroll_items')->first();
+        $this->post('/payroll/items/'.$item->id, ['components' => [['name' => 'Bonus', 'type' => 'earning', 'amount' => 100000]], 'reason' => 'Bonus periode ini'])->assertRedirect()->assertSessionHasNoErrors();
+        $draft = $this->getJson('/payroll/runs/'.$run->id)->assertOk()->json('items.0.snapshot');
+        $this->assertSame(53, $draft['late_minutes']);
+        $this->assertSame('warning', $draft['zone']);
+        $this->assertSame(21500, $draft['late_deduction']);
+        $this->assertSame(30000, $draft['overtime_pay']);
+        $this->assertSame(3258500, $draft['net']);
+        $this->actingAs($this->worker)->getJson('/payroll/slips')->assertOk()->assertExactJson([]);
+        $this->get('/payroll/slips/'.$item->id.'/print')->assertNotFound();
+        $this->actingAs($this->admin)->post('/payroll/runs/'.$run->id.'/publish')->assertRedirect()->assertSessionHasNoErrors();
+        $this->actingAs($this->worker)->getJson('/payroll/slips')->assertOk()->assertJsonPath('0.snapshot.net', 3258500);
+        $this->get('/payroll/slips/'.$item->id.'/print')->assertOk()->assertSee('3.258.500');
+        $this->actingAs($this->supervisor)->getJson('/payroll/slips')->assertExactJson([]);
+        $this->get('/payroll/slips/'.$item->id.'/print')->assertNotFound();
+        $this->actingAs($this->admin)->postJson('/payroll/runs/'.$run->id.'/recalculate')->assertUnprocessable();
+        $this->deleteJson('/payroll/runs/'.$run->id)->assertUnprocessable();
+        $this->postJson('/payroll/items/'.$item->id, ['components' => [], 'reason' => 'Coba ubah terbit'])->assertUnprocessable();
+        DB::table('salary_profiles')->where('employee_id', $this->employee)->update(['base_salary' => 9000000]);
+        DB::table('attendances')->where('employee_id', $this->employee)->update(['late_minutes' => 0]);
+        $this->actingAs($this->worker)->getJson('/payroll/slips')->assertJsonPath('0.snapshot.net', 3258500);
+        $this->assertDatabaseHas('employee_notifications', ['user_id' => $this->worker->id, 'event' => 'payroll.publish']);
+    }
+
+    public function test_payroll_requires_explicit_rules_profiles_and_review_of_pending_overtime(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-17 19:00:00'));
+        $this->actingAs($this->admin)->post('/payroll/runs', [...$this->payrollData(), 'safe_minutes' => null, 'warning_minutes' => null, 'late_rate' => null, 'overtime_rate' => null])->assertRedirect()->assertSessionHasNoErrors();
+        $run = DB::table('payroll_runs')->first();
+        $this->postJson('/payroll/runs/'.$run->id.'/publish')->assertUnprocessable();
+        $this->post('/payroll/runs/'.$run->id.'/policy', ['safe_minutes' => 0, 'warning_minutes' => 0, 'free_late_minutes' => 0, 'late_rate' => 0, 'late_cap' => null, 'overtime_rate' => 0])->assertRedirect()->assertSessionHasNoErrors();
+        $this->postJson('/payroll/runs/'.$run->id.'/publish')->assertUnprocessable();
+        $this->post('/payroll/profiles/'.$this->employee, ['base_salary' => 0, 'components' => []])->assertRedirect()->assertSessionHasNoErrors();
+        $this->post('/payroll/runs/'.$run->id.'/recalculate')->assertRedirect();
+        DB::table('overtime_requests')->insert(['employee_id' => $this->employee, 'work_date' => '2026-11-17', 'starts_at' => '2026-11-17 17:00:00', 'ends_at' => '2026-11-17 18:00:00', 'minutes' => 60, 'reason' => 'Periksa dulu', 'status' => 'pending']);
+        $this->postJson('/payroll/runs/'.$run->id.'/publish')->assertUnprocessable();
+        DB::table('overtime_requests')->update(['status' => 'rejected']);
+        $this->post('/payroll/runs/'.$run->id.'/recalculate')->assertRedirect();
+        $this->post('/payroll/runs/'.$run->id.'/publish')->assertRedirect()->assertSessionHasNoErrors();
+    }
+
+    public function test_payroll_rejects_stale_sources_overlapping_periods_and_unfinished_periods(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-17 19:00:00'));
+        $this->actingAs($this->admin)->post('/payroll/profiles/'.$this->employee, ['base_salary' => 1000000, 'components' => []])->assertRedirect();
+        $this->post('/payroll/runs', $this->payrollData())->assertRedirect();
+        $run = DB::table('payroll_runs')->first();
+        $this->postJson('/payroll/runs', $this->payrollData())->assertUnprocessable();
+        DB::table('attendances')->insert(['employee_id' => $this->employee, 'work_date' => '2026-11-17', 'mode' => 'wfo', 'source' => 'web', 'status' => 'present', 'late_minutes' => 75]);
+        $this->postJson('/payroll/runs/'.$run->id.'/publish')->assertUnprocessable();
+        $this->post('/payroll/runs/'.$run->id.'/recalculate')->assertRedirect();
+        $this->getJson('/payroll/runs/'.$run->id)->assertJsonPath('items.0.snapshot.zone', 'red')->assertJsonPath('items.0.snapshot.late_deduction', 32500);
+        $this->post('/payroll/runs/'.$run->id.'/publish')->assertRedirect()->assertSessionHasNoErrors();
+        $this->post('/payroll/runs', [...$this->payrollData(), 'employee_ids' => [$this->supervisorEmployee], 'ends_on' => '2026-11-30'])->assertRedirect()->assertSessionHasNoErrors();
+        $future = DB::table('payroll_runs')->orderByDesc('id')->first();
+        $this->postJson('/payroll/runs/'.$future->id.'/publish')->assertUnprocessable();
+        $this->delete('/payroll/runs/'.$future->id)->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertDatabaseMissing('payroll_runs', ['id' => $future->id]);
+        $this->assertDatabaseHas('salary_profiles', ['employee_id' => $this->employee, 'base_salary' => 1000000]);
+    }
+
+    public function test_payroll_permissions_are_separate_from_accounts_and_scope_salary_reads(): void
+    {
+        $this->grant($this->supervisor, 'accounts.manage', 'all');
+        $this->actingAs($this->supervisor)->getJson('/payroll')->assertForbidden();
+        $this->postJson('/payroll/runs', $this->payrollData())->assertForbidden();
+        $this->grant($this->supervisor, 'payroll.manage', 'all');
+        $this->getJson('/payroll')->assertOk();
+        $this->post('/payroll/runs', $this->payrollData())->assertRedirect()->assertSessionHasNoErrors();
+        $run = DB::table('payroll_runs')->first();
+        $this->postJson('/payroll/runs/'.$run->id.'/publish')->assertForbidden();
+        $this->actingAs($this->worker)->getJson('/payroll/runs/'.$run->id)->assertForbidden();
+        $this->postJson('/payroll/profiles/'.$this->employee, ['base_salary' => 9000000, 'components' => []])->assertForbidden();
+        $this->grant($this->worker, 'payroll.publish', 'all');
+        $this->getJson('/payroll')->assertOk();
+        $this->postJson('/payroll/profiles/'.$this->employee, ['base_salary' => 9000000, 'components' => []])->assertForbidden();
+    }
+
+    public function test_overtime_requires_approval_excludes_regular_hours_and_prevents_overlap_and_self_approval(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-17 19:00:00'));
+        $data = ['work_date' => '2026-11-17', 'starts_at' => '2026-11-17 17:00:00', 'ends_at' => '2026-11-17 18:30:00', 'break_minutes' => 15, 'reason' => 'Pesanan tambahan'];
+        $this->actingAs($this->worker)->postJson('/overtime', [...$data, 'starts_at' => '2026-11-17 16:00:00'])->assertUnprocessable();
+        $this->post('/overtime', $data)->assertRedirect()->assertSessionHasNoErrors();
+        $item = DB::table('overtime_requests')->first();
+        $this->assertSame(75, $item->minutes);
+        $this->postJson('/overtime', $data)->assertUnprocessable();
+        $this->grant($this->worker, 'overtime.approve', 'self');
+        $this->postJson('/overtime/'.$item->id.'/decide', ['status' => 'approved', 'decision_note' => 'Sendiri'])->assertForbidden();
+        $this->grant($this->supervisor, 'overtime.approve', 'reports');
+        $this->actingAs($this->supervisor)->getJson('/action-center?view=approvals')->assertOk()->assertJsonPath('counts.overtime', 1);
+        $this->post('/overtime/'.$item->id.'/decide', ['status' => 'approved', 'decision_note' => 'Sudah diperiksa'])->assertRedirect()->assertSessionHasNoErrors();
+        $this->postJson('/overtime/'.$item->id.'/decide', ['status' => 'rejected', 'decision_note' => 'Tab lama'])->assertUnprocessable();
+        $this->getJson('/action-center?view=approvals')->assertJsonPath('total', 0);
+    }
+
+    public function test_lateness_accumulation_zones_and_caps_use_dynamic_policy_without_exposing_salary(): void
+    {
+        $this->actingAs($this->admin)->post('/payroll/profiles/'.$this->employee, ['base_salary' => 3000000, 'components' => []])->assertRedirect();
+        DB::table('attendances')->insert(['employee_id' => $this->employee, 'work_date' => '2026-11-17', 'mode' => 'wfo', 'source' => 'web', 'status' => 'present', 'late_minutes' => 120]);
+        $this->post('/payroll/runs', [...$this->payrollData(), 'late_cap' => 10000])->assertRedirect()->assertSessionHasNoErrors();
+        $run = DB::table('payroll_runs')->first();
+        $this->getJson('/payroll/runs/'.$run->id)->assertJsonPath('items.0.snapshot.late_deduction', 10000);
+        $this->actingAs($this->worker)->getJson('/attendance/lateness?from=2026-11-01&to=2026-11-17&mine=1')->assertOk()->assertJsonPath('0.minutes', 120)->assertJsonPath('0.zone', 'red')->assertJsonMissingPath('0.base_salary');
+        $this->grant($this->supervisor, 'attendance.read', 'self');
+        $this->actingAs($this->supervisor)->getJson('/attendance/lateness?from=2026-11-01&to=2026-11-17')->assertOk()->assertJsonCount(1);
+    }
+
     public function test_browser_scanners_are_independent_without_registration_and_fingerprint_still_requires_its_own_credentials(): void
     {
         $device = DB::table('devices')->insertGetId(['name' => 'Fingerprint pintu A', 'type' => 'fingerprint', 'active' => true, 'token_hash' => hash('sha256', 'fingerprint-test-token')]);
@@ -808,8 +941,9 @@ class AlfarWorkflowTest extends TestCase
         $this->assertSame('out', $result['event']);
         $this->assertSame('2026-11-17', $result['record']->work_date);
         DB::table('attendances')->delete();
-        $this->expectException(ValidationException::class);
-        $attendance->automaticRecord($this->employee, 'fingerprint', CarbonImmutable::parse('2026-11-18 02:00:00'));
+        $late = $attendance->automaticRecord($this->employee, 'fingerprint', CarbonImmutable::parse('2026-11-18 02:00:00'));
+        $this->assertSame('in', $late['event']);
+        $this->assertSame(230, $late['record']->late_minutes);
     }
 
     public function test_attendance_recap_filters_range_search_and_scope_and_marks_only_elapsed_shifts_absent(): void

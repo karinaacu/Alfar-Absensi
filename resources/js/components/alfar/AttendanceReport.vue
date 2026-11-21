@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount } from 'vue';
 import { toast } from 'vue-sonner';
+import LatenessSummary from './LatenessSummary.vue';
 import SearchInput from './SearchInput.vue';
 import AppSelect from './AppSelect.vue';
 const props = defineProps<{ initialSearch?: string; initialDate?: string }>();
@@ -138,6 +139,7 @@ onBeforeUnmount(() => {
                     @input="preset = 'custom'"
             /></label>
         </div>
+        <LatenessSummary :from="from" :to="to" :search="search" />
         <div class="table-wrap" :aria-busy="busy">
             <table>
                 <thead>
