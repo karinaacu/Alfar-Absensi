@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import QRCode from 'qrcode';
 import { toast } from 'vue-sonner';
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 const props = defineProps<{ name: string; allowWfo: boolean }>();
 const image = ref('');
 const lastAttendance = ref<{
@@ -16,6 +16,8 @@ const active = ref(false);
 const loading = ref(false);
 const duration = 15_000;
 let disposed = false;
+let expiresAt = 0;
+const sessionExpired = ref(false);
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 let countdownTimer: ReturnType<typeof setInterval> | undefined;
 let request: AbortController | undefined;
@@ -25,7 +27,7 @@ function clearTimers() {
     refreshTimer = undefined;
     countdownTimer = undefined;
 }
-function waitBeforeRetry(waitSeconds: number) {
+function waitBeforeRetry(waitSeconds: number, automatic = false) {
     const deadline = performance.now() + waitSeconds * 1000;
     retrySeconds.value = waitSeconds;
     countdownTimer = setInterval(() => {
@@ -33,15 +35,20 @@ function waitBeforeRetry(waitSeconds: number) {
             0,
             Math.ceil((deadline - performance.now()) / 1000),
         );
-        if (retrySeconds.value === 0) clearTimers();
+        if (retrySeconds.value === 0) {
+            clearTimers();
+            if (automatic && !document.hidden) start();
+        }
     }, 1000);
 }
 async function refresh() {
-    if (disposed || loading.value || !active.value) return;
+    if (disposed || !props.allowWfo || loading.value || !active.value) return;
     clearTimers();
     loading.value = true;
     image.value = '';
     request = new AbortController();
+    const timeout = setTimeout(() => request?.abort(), 15000);
+    let retry = false;
     try {
         const csrf = decodeURIComponent(
             document.cookie
@@ -70,7 +77,18 @@ async function refresh() {
             waitBeforeRetry(wait);
             return;
         }
-        const data = await response.json();
+        if ([401, 419].includes(response.status)) {
+            sessionExpired.value = true;
+            throw new Error(
+                'Sesi masuk sudah berakhir. Muat ulang halaman lalu masuk kembali untuk menampilkan QR.',
+            );
+        }
+        retry = response.status >= 500;
+        const data = await response.json().catch(() => null);
+        if (!data)
+            throw new Error(
+                'Server belum dapat membuat QR. Muat ulang halaman atau coba lagi sebentar.',
+            );
         if (!response.ok)
             throw new Error(
                 data.message || 'QR tidak dapat dibuat. Silakan coba lagi.',
@@ -88,6 +106,7 @@ async function refresh() {
         // Monotonic time is unaffected by differences between the device and server clocks.
         // Only this single timeout requests the next QR; countdown updates never make requests.
         const deadline = performance.now() + duration;
+        expiresAt = deadline;
         countdownTimer = setInterval(() => {
             seconds.value = Math.max(
                 0,
@@ -98,21 +117,40 @@ async function refresh() {
             void refresh();
         }, duration);
     } catch (e) {
-        if (disposed) return;
+        if (disposed || !props.allowWfo) return;
         error.value =
             e instanceof TypeError
                 ? 'Koneksi terputus. Periksa jaringan lalu tampilkan ulang QR.'
                 : e instanceof Error
-                  ? e.message
+                  ? e.name === 'AbortError'
+                      ? 'Koneksi terlalu lama. QR akan dicoba kembali dalam 15 detik.'
+                      : e.message
                   : 'QR tidak dapat dibuat.';
         active.value = false;
         toast.error(error.value, { id: 'qr-error' });
+        if (
+            retry ||
+            e instanceof TypeError ||
+            (e instanceof Error && e.name === 'AbortError')
+        )
+            waitBeforeRetry(15, true);
     } finally {
+        clearTimeout(timeout);
         loading.value = false;
     }
 }
+function retryOrReload() {
+    if (sessionExpired.value) window.location.reload();
+    else start();
+}
 function start() {
-    if (disposed || loading.value || active.value || retrySeconds.value > 0)
+    if (
+        disposed ||
+        !props.allowWfo ||
+        loading.value ||
+        active.value ||
+        retrySeconds.value > 0
+    )
         return;
     clearTimers();
     active.value = true;
@@ -120,10 +158,37 @@ function start() {
     seconds.value = 15;
     void refresh();
 }
+function resume() {
+    if (
+        !document.hidden &&
+        props.allowWfo &&
+        !sessionExpired.value &&
+        retrySeconds.value === 0 &&
+        !loading.value &&
+        (!active.value || performance.now() >= expiresAt)
+    ) {
+        if (active.value) void refresh();
+        else start();
+    }
+}
+watch(
+    () => props.allowWfo,
+    (allowed) => {
+        if (allowed) start();
+        else {
+            active.value = false;
+            image.value = '';
+            clearTimers();
+            request?.abort();
+        }
+    },
+);
 onMounted(() => {
     if (props.allowWfo) start();
+    document.addEventListener('visibilitychange', resume);
 });
 onBeforeUnmount(() => {
+    document.removeEventListener('visibilitychange', resume);
     disposed = true;
     active.value = false;
     clearTimers();
@@ -174,16 +239,19 @@ onBeforeUnmount(() => {
                 <span v-if="image && active" class="pill green"
                     >Diperbarui dalam {{ seconds }} detik</span
                 >
+                <p v-if="error" class="qr-error" role="status">{{ error }}</p>
                 <button
                     v-if="!active"
                     class="primary"
                     :disabled="loading || retrySeconds > 0"
-                    @click="start"
+                    @click="retryOrReload"
                 >
                     {{
                         retrySeconds > 0
                             ? `Tunggu ${retrySeconds} detik`
-                            : 'Tampilkan ulang QR'
+                            : sessionExpired
+                              ? 'Muat ulang halaman'
+                              : 'Tampilkan ulang QR'
                     }}
                 </button>
                 <p class="qr-instruction">
@@ -231,6 +299,14 @@ onBeforeUnmount(() => {
     max-width: 380px;
     line-height: 1.8;
     margin-top: 10px;
+}
+.personal-qr-body .qr-error {
+    color: #b43b4b;
+    background: #fff0f2;
+    border-radius: 10px;
+    padding: 12px;
+    max-width: 380px;
+    line-height: 1.7;
 }
 .last-attendance {
     display: flex;

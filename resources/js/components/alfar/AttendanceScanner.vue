@@ -2,7 +2,7 @@
 import { router } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
 import { BrowserQRCodeReader, type IScannerControls } from '@zxing/browser';
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
+import { nextTick, onBeforeUnmount, ref } from 'vue';
 export interface ScanDevice {
     [key: string]: unknown;
     id: number;
@@ -10,7 +10,7 @@ export interface ScanDevice {
     type: string;
     active: boolean | number;
 }
-const props = defineProps<{ devices: ScanDevice[] }>();
+defineProps<{ devices: ScanDevice[] }>();
 const method = ref(
     typeof navigator !== 'undefined' &&
         /Android|iPhone|iPad/i.test(navigator.userAgent)
@@ -25,11 +25,7 @@ const busy = ref(false);
 let controls: IScannerControls | undefined;
 let lastCode = '';
 let disposed = false;
-const available = computed(() =>
-    props.devices.filter(
-        (d) => d.active && ['scanner', 'phone_camera'].includes(d.type),
-    ),
-);
+const opening = ref(false);
 function stop() {
     running.value = false;
     controls?.stop();
@@ -105,7 +101,14 @@ async function consume(text: string, inputMethod = method.value) {
     }
 }
 async function startCamera() {
-    if (!available.value.length || running.value) return;
+    if (opening.value || running.value) return;
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        toast.error(
+            'Kamera memerlukan HTTPS. Buka alamat aplikasi yang aman di browser dan izinkan akses kamera.',
+        );
+        return;
+    }
+    opening.value = true;
     running.value = true;
     lastCode = '';
     await nextTick();
@@ -127,13 +130,22 @@ async function startCamera() {
             },
         );
         if (!running.value) controls.stop();
-    } catch {
+    } catch (error) {
         if (disposed) return;
         stop();
-        toast.error(
-            'Kamera belum dapat diakses. Gunakan HTTPS, izinkan kamera, lalu pastikan kamera tidak dipakai aplikasi lain.',
-            { id: 'camera-error' },
-        );
+        const name = error instanceof Error ? error.name : '';
+        const message = ['NotAllowedError', 'PermissionDeniedError'].includes(
+            name,
+        )
+            ? 'Izin kamera ditolak. Izinkan kamera melalui ikon gembok di alamat browser, lalu coba lagi.'
+            : ['NotFoundError', 'DevicesNotFoundError'].includes(name)
+              ? 'Kamera tidak ditemukan. Sambungkan kamera laptop atau webcam, lalu coba lagi.'
+              : name === 'NotReadableError'
+                ? 'Kamera sedang dipakai aplikasi lain. Tutup aplikasi tersebut lalu coba lagi.'
+                : 'Kamera belum dapat dibuka. Periksa izin kamera browser lalu coba lagi.';
+        toast.error(message, { id: 'camera-error' });
+    } finally {
+        opening.value = false;
     }
 }
 async function focusScanner() {
@@ -160,12 +172,13 @@ onBeforeUnmount(() => {
             <span class="pill purple-light">MASUK / PULANG OTOMATIS</span>
         </div>
         <div class="scanner-body">
-            <p v-if="!available.length" class="scanner-note">
-                Belum ada perangkat aktif untuk pilihan ini. Pengelola perlu
-                mendaftarkan perangkat pada menu Perangkat absensi.
+            <p class="scanner-note">
+                Gunakan kamera pada perangkat ini atau scanner USB. Setiap
+                laptop dan HP dapat membuka pemindai sendiri secara bersamaan,
+                tanpa memilih perangkat.
             </p>
-            <template
-                ><div class="scanner-camera">
+            <div class="scanner-capture">
+                <div class="scanner-camera">
                     <video
                         ref="video"
                         v-show="running"
@@ -180,12 +193,18 @@ onBeforeUnmount(() => {
                 <button
                     type="button"
                     class="primary"
-                    :disabled="!available.length || busy"
+                    :disabled="opening"
                     @click="running ? stop() : startCamera()"
                 >
-                    {{ running ? 'Hentikan kamera' : 'Aktifkan kamera' }}
-                </button></template
-            >
+                    {{
+                        opening
+                            ? 'Membuka kamera…'
+                            : running
+                              ? 'Hentikan kamera'
+                              : 'Aktifkan kamera'
+                    }}
+                </button>
+            </div>
             <form
                 class="usb-scanner-form"
                 @submit.prevent="consume(rawCode, 'usb_scanner')"
@@ -194,19 +213,12 @@ onBeforeUnmount(() => {
                     >Hasil scanner<input
                         ref="input"
                         v-model="rawCode"
-                        :disabled="!available.length || busy"
+                        :disabled="busy"
                         autocomplete="off"
                         placeholder="Klik di sini, lalu pindai QR karyawan" /></label
                 ><button type="button" class="secondary" @click="focusScanner">
                     Fokuskan scanner</button
-                ><button
-                    class="primary"
-                    :disabled="
-                        !available.some((d) => d.type === 'scanner') ||
-                        busy ||
-                        !rawCode
-                    "
-                >
+                ><button class="primary" :disabled="busy || !rawCode">
                     Catat hasil pindai</button
                 ><small
                     >Scanner yang berfungsi sebagai keyboard akan mengirim hasil
@@ -227,6 +239,12 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     gap: 18px;
+}
+.scanner-capture {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
 }
 .scanner-settings {
     display: grid;

@@ -1976,3 +1976,25 @@ td .text-button + .text-button {
         min-width: 0;
     }
 }
+.missing-employee-profile {
+    padding: 24px;
+}
+.missing-employee-profile p {
+    margin-top: 10px;
+    color: #747b91;
+}
+.personal-qr-shortcut {
+    white-space: nowrap;
+}
+@media (max-width: 600px) {
+    .personal-qr-shortcut span {
+        display: none;
+    }
+}
+
+.attendance-personal {
+    margin-bottom: 22px;
+}
+.attendance-personal > .panel {
+    margin-bottom: 0;
+}

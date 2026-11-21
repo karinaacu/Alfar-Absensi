@@ -182,7 +182,21 @@ const props = defineProps<{
     placements: Row[];
 }>();
 const page = usePage();
-const tab = ref('overview');
+const tab = ref(
+    props.me &&
+        !props.permissions.some((p) =>
+            [
+                'organization.manage',
+                'accounts.manage',
+                'roles.manage',
+                'attendance.scan',
+                'reviews.publish',
+                'kpi.validate',
+            ].includes(p),
+        )
+        ? 'my-attendance'
+        : 'overview',
+);
 const sidebarOpen = ref(false);
 const compactNavigation = useMediaQuery('(max-width: 900px)');
 const navigationToggle = ref<HTMLButtonElement | null>(null);
@@ -298,7 +312,7 @@ const menuGroups = computed(() =>
                     id: 'my-attendance',
                     label: 'Absensi saya',
                     icon: QrCode,
-                    show: !!props.me,
+                    show: true,
                 },
                 {
                     id: 'attendance',
@@ -1087,6 +1101,13 @@ function removeItem(entity: string, id: number, name: string) {
                     Workspace <span>/</span> <strong>{{ title }}</strong>
                 </div>
                 <div class="header-right">
+                    <button
+                        v-if="me && tab !== 'my-attendance'"
+                        class="text-button personal-qr-shortcut"
+                        @click="tab = 'my-attendance'"
+                    >
+                        <QrCode :size="17" /><span>QR absensi saya</span>
+                    </button>
                     <span class="live-dot"></span
                     ><span class="header-date">{{
                         new Intl.DateTimeFormat('id-ID', {
@@ -1554,6 +1575,17 @@ function removeItem(entity: string, id: number, name: string) {
                     "
                 >
                     <section
+                        v-if="tab === 'my-attendance' && !me"
+                        class="panel missing-employee-profile"
+                    >
+                        <h2>Profil karyawan belum terhubung</h2>
+                        <p>
+                            QR pribadi tersedia setelah pengelola menghubungkan
+                            akun ini ke profil karyawan melalui menu Data
+                            karyawan.
+                        </p>
+                    </section>
+                    <section
                         v-if="tab === 'my-attendance' && me"
                         class="attendance-personal"
                     >
@@ -1617,8 +1649,8 @@ function removeItem(entity: string, id: number, name: string) {
                         ><div class="info-banner">
                             <QrCode :size="20" /><span
                                 >Gunakan kamera laptop dahulu. Scanner QR dan
-                                kamera HP juga tersedia sebagai pilihan
-                                perangkat.</span
+                                kamera HP dapat digunakan bersamaan dari
+                                perangkat lain.</span
                             ><button
                                 v-if="has('devices.manage')"
                                 class="text-button"

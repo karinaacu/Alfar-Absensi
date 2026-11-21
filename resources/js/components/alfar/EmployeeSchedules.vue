@@ -266,37 +266,6 @@ function remove(from: string, to: string) {
                         Hari ini
                     </button>
                 </div>
-                <div class="schedule-list">
-                    <h3>Jadwal kerja · {{ bounds.from }} – {{ bounds.to }}</h3>
-                    <p v-if="busy">Memuat jadwal…</p>
-                    <p v-else-if="!schedules.length">
-                        Belum ada jadwal pada periode ini.
-                    </p>
-                    <div
-                        v-for="s in schedules"
-                        :key="s.id"
-                        class="schedule-row"
-                    >
-                        <span
-                            ><strong>{{ s.work_date }}</strong
-                            ><small>{{ s.shift }}</small></span
-                        ><span
-                            >{{ s.scheduled_in.slice(11, 16) }} –
-                            {{ s.scheduled_out.slice(11, 16) }}</span
-                        ><button
-                            v-if="
-                                canManage &&
-                                !punches.some(
-                                    (p) => p.work_date === s.work_date,
-                                )
-                            "
-                            class="text-button danger-button"
-                            @click="remove(s.work_date, s.work_date)"
-                        >
-                            Hapus
-                        </button>
-                    </div>
-                </div>
                 <div class="calendar">
                     <div class="legend">
                         <span
@@ -375,6 +344,64 @@ function remove(from: string, to: string) {
                     >
                         Hapus jadwal pada periode ini
                     </button>
+                </div>
+                <div class="schedule-list">
+                    <h3>Log kerja karyawan</h3>
+                    <p class="log-period">
+                        {{ bounds.from }} – {{ bounds.to }}
+                    </p>
+                    <p v-if="busy">Memuat jadwal…</p>
+                    <p v-else-if="!schedules.length">
+                        Belum ada jadwal pada periode ini.
+                    </p>
+                    <div
+                        v-for="s in schedules"
+                        :key="s.id"
+                        class="schedule-row"
+                    >
+                        <div>
+                            <strong>{{ s.work_date }}</strong
+                            ><small>{{ s.shift }}</small>
+                        </div>
+                        <div class="log-times">
+                            <span
+                                >Jadwal {{ s.scheduled_in.slice(11, 16) }} –
+                                {{ s.scheduled_out.slice(11, 16) }}</span
+                            ><small
+                                >Masuk
+                                {{
+                                    punches
+                                        .find(
+                                            (p) => p.work_date === s.work_date,
+                                        )
+                                        ?.clock_in?.slice(11, 16) || '—'
+                                }}
+                                · Pulang
+                                {{
+                                    punches
+                                        .find(
+                                            (p) => p.work_date === s.work_date,
+                                        )
+                                        ?.clock_out?.slice(11, 16) || '—'
+                                }}</small
+                            >
+                        </div>
+                        <span class="log-status" :class="status(s.work_date)">{{
+                            labels[status(s.work_date)]
+                        }}</span>
+                        <button
+                            v-if="
+                                canManage &&
+                                !punches.some(
+                                    (p) => p.work_date === s.work_date,
+                                )
+                            "
+                            class="text-button danger-button"
+                            @click="remove(s.work_date, s.work_date)"
+                        >
+                            Hapus
+                        </button>
+                    </div>
                 </div>
             </div></template
         >
@@ -462,8 +489,9 @@ function remove(from: string, to: string) {
 }
 .schedule-list {
     padding: 0 24px 20px;
-    max-height: 260px;
-    overflow: auto;
+    margin-top: 0;
+    border-top: 1px solid #eeeef7;
+    padding-top: 24px;
 }
 .schedule-list h3 {
     font-size: 13px;
@@ -590,6 +618,61 @@ function remove(from: string, to: string) {
     .panel-heading {
         flex-wrap: wrap;
         gap: 12px;
+    }
+}
+</style>
+<style scoped>
+.calendar {
+    border-top: 0;
+    padding-top: 0;
+}
+.calendar-nav {
+    flex-wrap: wrap;
+}
+.schedule-list h3 {
+    margin-bottom: 6px;
+    color: #30334d;
+    font-size: 15px;
+}
+.log-period {
+    color: #858ba1;
+    font-size: 12px;
+    margin-bottom: 14px;
+}
+.schedule-row {
+    display: grid;
+    grid-template-columns: minmax(100px, 1fr) minmax(150px, 1fr) auto auto;
+    gap: 16px;
+}
+.log-times {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.log-status {
+    padding: 5px 9px;
+    border-radius: 8px;
+    font-size: 11px;
+    justify-self: start;
+}
+@media (max-width: 600px) {
+    .schedule-list {
+        padding: 20px 16px;
+    }
+    .schedule-row {
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+    }
+    .log-times {
+        grid-column: 1;
+    }
+    .schedule-row > .danger-button {
+        grid-column: 2;
+        grid-row: 2;
+    }
+    .log-status {
+        grid-column: 2;
+        grid-row: 1;
     }
 }
 </style>

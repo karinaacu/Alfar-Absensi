@@ -66,7 +66,7 @@ Role rekomendasi (dibuat melalui panel, bukan dikunci dalam kode):
 
 Karyawan membuka **Absensi saya** untuk menampilkan QR pribadinya. QR berubah setiap 15 detik, terikat ke identitas pemilik akun, dan hanya QR terbaru yang berlaku. Token disimpan sebagai hash dan sekali pakai. Karyawan tidak memerlukan izin khusus untuk menampilkan QR sendiri, tetapi harus memiliki profil aktif dan akses WFO.
 
-Petugas dengan izin **Pindai QR karyawan untuk mencatat absensi** (`attendance.scan`) membuka **Pemindai QR kantor**. Semua perangkat terdaftar yang aktif dapat dipakai bersamaan; tidak ada pilihan perangkat atau jenis absensi. Kamera dan kolom scanner USB tersedia bersama, sementara fingerprint menerima event melalui endpoint terpisah. Server menentukan masuk/pulang dari jadwal dan catatan sebelumnya, memeriksa akses WFO, cakupan petugas, token terbaru, kedaluwarsa, dan duplikasi.
+Petugas dengan izin **Pindai QR karyawan untuk mencatat absensi** (`attendance.scan`) membuka **Pemindai QR kantor**. Kamera laptop, kamera HP, dan scanner USB melalui browser tidak wajib didaftarkan sebagai alat. Setiap browser/perangkat mempunyai sesi pemindai sendiri dan dapat digunakan bersamaan, tanpa mengunci perangkat lain; tidak ada pilihan perangkat atau jenis absensi. Kamera dan kolom scanner USB tersedia bersama, sementara fingerprint menerima event melalui endpoint terpisah. Server menentukan masuk/pulang dari jadwal dan catatan sebelumnya, memeriksa akses WFO, cakupan petugas, token terbaru, kedaluwarsa, dan duplikasi.
 
 Bawaan shift: masuk dibuka 120 menit sebelum jadwal, pulang dibuka 240 menit setelah jam masuk terjadwal, dan pindai ditutup 120 menit setelah jam pulang. Shift 08.00–17.00 menerima masuk mulai 06.00, pulang mulai 12.00, hingga 19.00. Ketiga batas dapat diatur pada shift dan disalin ke jadwal sehingga perubahan shift tidak mengubah jadwal lama diam-diam. Pindai ulang sebelum waktu pulang ditolak dengan toast, bukan mengubahnya menjadi pulang. Karyawan tanpa catatan masuk yang datang setelah batas pulang harus mengajukan koreksi. Shift malam memakai tanggal mulai kerja; jadwal yang sama dekatnya ditolak agar petugas memperbaiki jadwal yang bertumpuk. Toleransi menentukan keterlambatan, bukan menghalangi pencatatan keterlambatan hingga batas masuk berakhir.
 
@@ -74,7 +74,7 @@ Tiga kategori perangkat tersedia pada **Perangkat absensi**:
 
 - **Sidik jari**: endpoint dan pemetaan identitas perangkat, memerlukan adapter vendor untuk alat fisik.
 - **Pemindai QR**: kamera laptop atau alat scanner QR yang mengirim teks seperti keyboard dan diakhiri Enter. Untuk tahap awal gunakan kamera laptop; izinkan kamera di browser melalui HTTPS.
-- **Kamera HP**: petugas membuka halaman pemindai di HP dengan perangkat kamera HP aktif yang telah didaftarkan. Kamera belakang diprioritaskan.
+- **Kamera HP**: petugas membuka halaman pemindai di HP langsung melalui browser, tanpa memilih perangkat terdaftar. Kamera belakang diprioritaskan.
 
 Kamera laptop/scanner/kamera HP tidak memerlukan token API fingerprint. Kunci perangkat hanya untuk koneksi alat sidik jari. Karyawan menampilkan QR; petugas/perangkat kantor yang memindai. QR dinamis mengurangi replay tetapi belum membuktikan lokasi fisik atau mencegah gambar dibagikan selama masa berlaku 15 detik.
 
@@ -143,3 +143,7 @@ Jabatan berdiri sendiri; divisi dipilih pada profil karyawan. Karyawan baru mend
 Hapus jabatan, akun dan karyawan mengarsipkan data dari daftar aktif sambil mempertahankan relasi dan riwayat. Hapus akun/karyawan menonaktifkan login; akun sendiri dan superadmin dilindungi. Email akun terarsip yang dibuat ulang dipulihkan dengan password sementara baru dan peran lama dikosongkan. Profil terarsip dapat dihubungkan kembali melalui akun tersebut.
 
 Jadwal ditampilkan sebagai kartu per karyawan, dengan detail daftar shift serta kalender mingguan/bulanan. Hijau hadir, merah alfa, kuning sakit dan biru izin/cuti, masing-masing dengan ikon. Jadwal mendatang atau yang belum selesai tidak dihitung alfa. Hapus satu hari atau periode kalender hanya menghapus jadwal tanpa catatan absensi. Rekap memiliki rentang tanggal (maksimal 366 hari), pencarian nama/jabatan/divisi dan paginasi, sesuai cakupan izin; data tidak dibatasi 500 catatan pertama.
+
+QR pribadi dibuka langsung saat karyawan biasa masuk dan tetap tersedia melalui **Absensi saya** serta pintasan QR di header. Jika akun belum terhubung dengan profil, halaman menjelaskan cara menghubungkannya; izin WFO tetap diperiksa server. Rotasi berjalan setiap 15 detik. Gangguan jaringan/server dicoba ulang setelah 15 detik, QR kedaluwarsa diperbarui saat tab kembali aktif, dan sesi berakhir meminta muat ulang/login. Pembatasan 429 mengikuti waktu tunggu server.
+
+Kamera browser memerlukan HTTPS (atau localhost saat pengembangan), izin kamera browser, dan kamera yang tersedia. Pesan kesalahan membedakan izin ditolak, kamera tidak ditemukan, dan kamera sedang digunakan aplikasi lain. Token dan pemetaan identitas tetap wajib untuk fingerprint; ID perangkat eksplisit yang dinonaktifkan tetap ditolak. Kalender kerja tampil di atas dan log jadwal/status/jam masuk-pulang di bawahnya.

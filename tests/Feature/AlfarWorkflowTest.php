@@ -685,6 +685,30 @@ class AlfarWorkflowTest extends TestCase
         $this->getJson('/employees/'.$this->employee.'/calendar?from=2026-01-01&to=2026-11-30')->assertUnprocessable();
     }
 
+    public function test_browser_scanners_are_independent_without_registration_and_fingerprint_still_requires_its_own_credentials(): void
+    {
+        $device = DB::table('devices')->insertGetId(['name' => 'Fingerprint pintu A', 'type' => 'fingerprint', 'active' => true, 'token_hash' => hash('sha256', 'fingerprint-test-token')]);
+        foreach (['laptop_camera', 'phone_camera', 'usb_scanner'] as $index => $method) {
+            $user = $index === 0 ? $this->worker : User::factory()->create();
+            $employee = $index === 0 ? $this->employee : DB::table('employees')->insertGetId(['user_id' => $user->id, 'nik' => 'STATION-'.$index, 'position_id' => $this->position, 'department_id' => $this->department, 'allow_wfo' => true]);
+            if ($index !== 0) {
+                DB::table('schedules')->insert(['employee_id' => $employee, 'shift_id' => $this->shift, 'work_date' => '2026-11-17', 'scheduled_in' => '2026-11-17 08:00:00', 'scheduled_out' => '2026-11-17 17:00:00', 'tolerance_minutes' => 10]);
+            }
+            $url = $this->actingAs($user)->postJson('/attendance/qr')->assertOk()->json('url');
+            parse_str(parse_url($url, PHP_URL_QUERY), $params);
+            $this->actingAs($this->admin)->postJson('/attendance/scan', ['token' => $params['employee_qr'], 'input_method' => $method])->assertOk()->assertJsonPath('event', 'in');
+            $this->assertDatabaseHas('attendances', ['employee_id' => $employee, 'source' => $method]);
+        }
+        DB::table('schedules')->insert(['employee_id' => $this->supervisorEmployee, 'shift_id' => $this->shift, 'work_date' => '2026-11-17', 'scheduled_in' => '2026-11-17 08:00:00', 'scheduled_out' => '2026-11-17 17:00:00', 'tolerance_minutes' => 10]);
+        DB::table('device_employees')->insert(['device_id' => $device, 'employee_id' => $this->supervisorEmployee, 'external_id' => '42']);
+        $payload = ['external_event_id' => 'event-1', 'external_id' => '42', 'occurred_at' => '2026-11-17 08:00:00'];
+        $this->postJson('/api/fingerprint/events', $payload)->assertUnauthorized();
+        $this->withHeader('Authorization', 'Bearer fingerprint-test-token')->postJson('/api/fingerprint/events', $payload)->assertOk()->assertJsonPath('status', 'recorded');
+        $this->assertDatabaseCount('attendances', 4);
+        $this->assertDatabaseCount('devices', 1);
+        $this->assertDatabaseCount('employee_notifications', 4);
+    }
+
     public function test_automatic_scanner_ignores_requested_event_and_does_not_turn_repeat_into_checkout(): void
     {
         DB::table('devices')->insert(['name' => 'Scanner aktif', 'type' => 'scanner', 'active' => true, 'token_hash' => hash('sha256', 'test-scanner')]);

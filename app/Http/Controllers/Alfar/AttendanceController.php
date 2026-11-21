@@ -41,9 +41,14 @@ class AttendanceController extends Controller
         $data = $r->validate(['token' => 'required|string|size:64', 'device_id' => 'nullable|integer|exists:devices,id', 'work_date' => 'nullable|date_format:Y-m-d', 'input_method' => 'required|in:laptop_camera,usb_scanner,phone_camera']);
 
         return DB::transaction(function () use ($r, $a, $attendance, $data) {
-            $expectedType = $data['input_method'] === 'phone_camera' ? 'phone_camera' : 'scanner';
-            $device = DB::table('devices')->where('active', true)->where('type', $expectedType)->when(! empty($data['device_id']), fn ($q) => $q->where('id', $data['device_id']))->orderBy('id')->first();
-            abort_unless($device && $device->active && $device->type === $expectedType, 422, 'Belum ada perangkat pemindai aktif yang sesuai. Hubungi pengelola.');
+            // Browser cameras and USB keyboard scanners are independent stations.
+            // A registered device is optional; explicit hardware IDs must remain active.
+            $device = null;
+            if (! empty($data['device_id'])) {
+                $expectedType = $data['input_method'] === 'phone_camera' ? 'phone_camera' : 'scanner';
+                $device = DB::table('devices')->where('id', $data['device_id'])->where('active', true)->where('type', $expectedType)->first();
+                abort_unless($device !== null, 422, 'Perangkat tidak aktif atau jenisnya tidak sesuai.');
+            }
             // Read the immutable owner first; lock employee before token to match issuance order.
             $owner = DB::table('qr_tokens')->where('token_hash', hash('sha256', $data['token']))->first();
             if (! $owner?->employee_id) {
@@ -64,7 +69,7 @@ class AttendanceController extends Controller
             $record = $result['record'];
             $data['event'] = $result['event'];
             DB::table('qr_uses')->insert(['qr_token_id' => $qr->id, 'employee_id' => $employee->id, 'event' => $data['event']]);
-            Access::audit($r->user()->id, 'qr.scan', 'attendance:'.$record->id, null, ['device_id' => $device->id, 'employee_id' => $employee->id, 'event' => $data['event'], 'input_method' => $data['input_method']]);
+            Access::audit($r->user()->id, 'qr.scan', 'attendance:'.$record->id, null, ['device_id' => $device?->id, 'employee_id' => $employee->id, 'event' => $data['event'], 'input_method' => $data['input_method']]);
 
             return response()->json(['message' => 'Absen '.($data['event'] === 'in' ? 'masuk' : 'pulang').' berhasil dicatat.', 'employee_name' => $user->name, 'nik' => $employee->nik, 'event' => $data['event'], 'work_date' => $record->work_date, 'recorded_at' => $data['event'] === 'in' ? $record->clock_in : $record->clock_out]);
         });
