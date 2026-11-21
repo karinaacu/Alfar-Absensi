@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppDateTimePicker from '@/components/alfar/AppDateTimePicker.vue';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import {
     Activity,
@@ -831,12 +832,22 @@ function requestChange() {
             field('work_date', 'Tanggal kerja', 'date'),
             field('reason', 'Alasan', 'textarea'),
             {
-                ...field('clock_in', 'Koreksi waktu masuk', 'text', false),
-                hint: 'YYYY-MM-DD HH:mm:ss; hanya untuk koreksi',
+                ...field('clock_in', 'Koreksi waktu masuk', 'datetime', false),
+                dateFrom: 'work_date',
+                showWhen: { key: 'type', value: 'correction' },
+                requiredWhen: { key: 'type', value: 'correction' },
+                hint: 'Pilih tanggal dan waktu masuk yang sebenarnya.',
             },
             {
-                ...field('clock_out', 'Koreksi waktu keluar', 'text', false),
-                hint: 'YYYY-MM-DD HH:mm:ss; hanya untuk koreksi',
+                ...field(
+                    'clock_out',
+                    'Koreksi waktu keluar',
+                    'datetime',
+                    false,
+                ),
+                dateFrom: 'work_date',
+                showWhen: { key: 'type', value: 'correction' },
+                hint: 'Opsional. Jika shift melewati tengah malam, pilih tanggal berikutnya.',
             },
         ],
     };
@@ -1736,9 +1747,10 @@ function confirmDeletion() {
                                 ]"
                                 aria-label="Jenis absensi WFH"
                             /><label
-                                >Tanggal kerja<input
+                                >Tanggal kerja<AppDateTimePicker
                                     v-model="clock.work_date"
-                                    type="date"
+                                    label="Tanggal kerja"
+                                    mode="date"
                                     required /></label
                             ><button
                                 class="primary"

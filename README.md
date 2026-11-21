@@ -136,6 +136,8 @@ Penyimpanan bersifat atomik, memakai operasi database berkelompok (500 jadwal pe
 
 Seluruh dropdown pada formulir, filter, dan peran menggunakan komponen `AppSelect`, tanpa elemen select native. Mendukung pencarian, keyboard panah/Enter/Escape/Tab, serta panel pilihan yang mengikuti ukuran layar dan tetap terlihat di dalam modal.
 
+Seluruh tanggal dan waktu menggunakan `AppDateTimePicker` dengan kalender serta pilihan jam, menit, dan detik di dalam dialog sesuai desain Alfar. Tidak memakai input tanggal/waktu bawaan browser atau pengetikan bebas. Koreksi absensi menampilkan pemilih waktu hanya untuk jenis Koreksi absensi; tanggal awal mengikuti tanggal kerja, dan tanggal keluar dapat dipilih pada hari berikutnya untuk shift malam. Server menerima tanggal `YYYY-MM-DD`, jam shift `HH:mm`, dan koreksi/lembur `YYYY-MM-DD HH:mm:ss`. Pesan validasi koreksi menggunakan bahasa Indonesia.
+
 ## Pengelolaan karyawan dan kalender
 
 Jabatan berdiri sendiri; divisi dipilih pada profil karyawan. Karyawan baru mendapat identitas internal otomatis, tanpa kolom NIK. Migrasi mempertahankan divisi dan identitas data lama, termasuk riwayat penempatan. Kartu menampilkan nama, jabatan dan divisi. Pencarian akun menggunakan komponen yang sama dengan pencarian karyawan dan rekap. Semua form edit menyimpan ID secara internal tanpa menampilkan kolom ID.

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppDateTimePicker from '@/components/alfar/AppDateTimePicker.vue';
 import { useForm } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
 import AppSelect from '@/components/alfar/AppSelect.vue';
@@ -189,17 +190,19 @@ const total = computed(() => days.value * form.employee_ids.length);
         </div>
         <div class="bulk-date-range">
             <label
-                >Tanggal mulai<input
+                >Tanggal mulai<AppDateTimePicker
                     v-model="form.starts_on"
-                    type="date"
+                    label="Tanggal mulai"
+                    mode="date"
                     required /></label
             ><label
-                >Tanggal akhir<input
+                >Tanggal akhir<AppDateTimePicker
                     v-model="form.ends_on"
-                    type="date"
+                    label="Tanggal akhir"
+                    mode="date"
                     :min="form.starts_on"
                     required
-                    @input="preset = 'custom'"
+                    @change="preset = 'custom'"
             /></label>
         </div>
         <small

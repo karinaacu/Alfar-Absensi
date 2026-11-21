@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppDateTimePicker from './AppDateTimePicker.vue';
 import { useForm } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
 import AppSelect from '@/components/alfar/AppSelect.vue';
@@ -10,6 +11,9 @@ export interface Field {
     required?: boolean;
     options?: { value: string | number; label: string }[];
     hint?: string;
+    showWhen?: { key: string; value: string };
+    requiredWhen?: { key: string; value: string };
+    dateFrom?: string;
     value?: string | number | boolean | null;
 }
 const props = defineProps<{
@@ -36,8 +40,14 @@ watch(() => [props.url, props.fields], reset, { immediate: true });
 function send() {
     for (const field of props.fields)
         if (
-            field.options &&
-            field.required &&
+            (field.options ||
+                ['date', 'time', 'datetime'].includes(field.type || '')) &&
+            (!field.showWhen ||
+                form[field.showWhen.key] === field.showWhen.value) &&
+            (field.required ||
+                (field.requiredWhen &&
+                    form[field.requiredWhen.key] ===
+                        field.requiredWhen.value)) &&
             (form[field.key] === null ||
                 form[field.key] === '' ||
                 form[field.key] === undefined)
@@ -46,14 +56,28 @@ function send() {
             toast.error(`${field.label} wajib dipilih.`);
             return;
         }
+    if (
+        props.url === '/attendance/requests' &&
+        form.type === 'correction' &&
+        form.clock_in &&
+        form.clock_out &&
+        String(form.clock_out) <= String(form.clock_in)
+    ) {
+        const message =
+            'Waktu keluar harus setelah waktu masuk. Pilih tanggal berikutnya jika shift melewati tengah malam.';
+        form.setError('clock_out', message);
+        toast.error(message);
+        return;
+    }
     form.transform((data) =>
         Object.fromEntries(
-            Object.entries(data).map(([k, v]) => [
-                k,
-                v === '' && !props.fields.find((f) => f.key === k)?.required
-                    ? null
-                    : v,
-            ]),
+            Object.entries(data).map(([k, v]) => {
+                const field = props.fields.find((f) => f.key === k);
+                const hidden =
+                    field?.showWhen &&
+                    data[field.showWhen.key] !== field.showWhen.value;
+                return [k, hidden || (v === '' && !field?.required) ? null : v];
+            }),
         ),
     ).post(props.url, {
         preserveScroll: true,
@@ -72,12 +96,25 @@ function upload(event: Event, key: string) {
         <h3>{{ title }}</h3>
         <label
             v-for="field in fields.filter(
-                (item) => item.key !== 'id' && item.type !== 'hidden',
+                (item) =>
+                    item.key !== 'id' &&
+                    item.type !== 'hidden' &&
+                    (!item.showWhen ||
+                        form[item.showWhen.key] === item.showWhen.value),
             )"
             :key="field.key"
         >
             <span
-                >{{ field.label }} <small v-if="field.required">*</small></span
+                >{{ field.label }}
+                <small
+                    v-if="
+                        field.required ||
+                        (field.requiredWhen &&
+                            form[field.requiredWhen.key] ===
+                                field.requiredWhen.value)
+                    "
+                    >*</small
+                ></span
             >
             <AppSelect
                 v-if="field.options"
@@ -91,6 +128,33 @@ function upload(event: Event, key: string) {
                           ]
                 "
                 :aria-label="field.label"
+            />
+            <AppDateTimePicker
+                v-else-if="
+                    ['date', 'time', 'datetime'].includes(field.type || '')
+                "
+                :model-value="form[field.key]"
+                @update:model-value="
+                    (value) => {
+                        form[field.key] = value;
+                    }
+                "
+                :mode="field.type as 'date' | 'time' | 'datetime'"
+                :label="field.label"
+                :seconds="field.type === 'datetime'"
+                :required="
+                    field.required ||
+                    !!(
+                        field.requiredWhen &&
+                        form[field.requiredWhen.key] ===
+                            field.requiredWhen.value
+                    )
+                "
+                :default-date="
+                    field.dateFrom
+                        ? String(form[field.dateFrom] || '')
+                        : undefined
+                "
             />
             <textarea
                 v-else-if="field.type === 'textarea'"

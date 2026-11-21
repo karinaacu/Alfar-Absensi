@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppDateTimePicker from '@/components/alfar/AppDateTimePicker.vue';
 import { ref, watch, onBeforeUnmount } from 'vue';
 import { toast } from 'vue-sonner';
 import LatenessSummary from './LatenessSummary.vue';
@@ -126,17 +127,19 @@ onBeforeUnmount(() => {
                 ]"
                 aria-label="Rentang rekap"
             /><label
-                >Dari tanggal<input
+                >Dari tanggal<AppDateTimePicker
                     v-model="from"
-                    type="date"
+                    label="Dari tanggal"
+                    mode="date"
                     :max="to"
-                    @input="preset = 'custom'" /></label
+                    @change="preset = 'custom'" /></label
             ><label
-                >Sampai tanggal<input
+                >Sampai tanggal<AppDateTimePicker
                     v-model="to"
-                    type="date"
+                    label="Sampai tanggal"
+                    mode="date"
                     :min="from"
-                    @input="preset = 'custom'"
+                    @change="preset = 'custom'"
             /></label>
         </div>
         <LatenessSummary :from="from" :to="to" :search="search" />

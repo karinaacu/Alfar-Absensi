@@ -71,6 +71,25 @@ class AlfarWorkflowTest extends TestCase
         return DB::table('targets')->insertGetId(['period_id' => $this->period, 'metric_id' => $this->metric, 'employee_id' => $this->employee, 'target' => 99, 'weight' => 100, 'definition' => json_encode((array) DB::table('metrics')->find($this->metric))]);
     }
 
+    public function test_correction_picker_payload_preserves_seconds_and_overnight_date(): void
+    {
+        $payload = ['type' => 'correction', 'work_date' => '2026-11-17', 'reason' => 'Koreksi pencatatan', 'clock_in' => '2026-11-17 06:00:15', 'clock_out' => '2026-11-18 01:30:45'];
+        $this->actingAs($this->worker)->post('/attendance/requests', $payload)->assertRedirect()->assertSessionHasNoErrors();
+        $request = DB::table('requests')->where('employee_id', $this->employee)->first();
+        $this->assertNotNull($request);
+        $this->assertSame(['clock_in' => $payload['clock_in'], 'clock_out' => $payload['clock_out']], json_decode($request->payload, true));
+    }
+
+    public function test_correction_format_and_time_order_errors_are_in_indonesian(): void
+    {
+        $payload = ['type' => 'correction', 'work_date' => '2026-11-17', 'reason' => 'Koreksi pencatatan', 'clock_in' => '2026-11-17 06.00.00'];
+        $this->actingAs($this->worker)->postJson('/attendance/requests', $payload)->assertUnprocessable()->assertJsonPath('errors.clock_in.0', 'Format waktu masuk tidak valid. Gunakan pemilih tanggal dan waktu.');
+        $payload['clock_in'] = '2026-11-17 06:00:00';
+        $payload['clock_out'] = '2026-11-17 05:00:00';
+        $this->postJson('/attendance/requests', $payload)->assertUnprocessable()->assertJsonPath('errors.clock_out.0', 'Waktu keluar harus setelah waktu masuk.');
+        $this->assertDatabaseCount('requests', 0);
+    }
+
     public function test_domain_is_enforced_when_creating_and_changing_accounts(): void
     {
         $this->actingAs($this->admin)->postJson('/manage/accounts', ['name' => 'Invalid', 'email' => 'a@sub.alfar.id', 'password' => 'SecurePassword123', 'password_confirmation' => 'SecurePassword123'])->assertUnprocessable()->assertJsonValidationErrors('email');

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppDateTimePicker from '@/components/alfar/AppDateTimePicker.vue';
 import { computed, ref, onBeforeUnmount, watch } from 'vue';
 import { router, useForm } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
@@ -673,19 +674,22 @@ onBeforeUnmount(() => {
                 /></label>
                 <div class="pay-dates">
                     <label
-                        >Dari tanggal<Input
+                        >Dari tanggal<AppDateTimePicker
                             v-model="runForm.starts_on"
-                            type="date"
+                            label="Dari tanggal"
+                            mode="date"
                             required /></label
                     ><label
-                        >Sampai tanggal<Input
+                        >Sampai tanggal<AppDateTimePicker
                             v-model="runForm.ends_on"
-                            type="date"
+                            label="Sampai tanggal"
+                            mode="date"
                             required /></label
                     ><label
-                        >Tanggal pembayaran<Input
+                        >Tanggal pembayaran<AppDateTimePicker
                             v-model="runForm.pays_on"
-                            type="date"
+                            label="Tanggal pembayaran"
+                            mode="date"
                             required
                     /></label>
                 </div>

@@ -88,7 +88,7 @@ class AttendanceController extends Controller
 
     public function requestChange(Request $r, Access $a): RedirectResponse
     {
-        $data = $r->validate(['work_date' => 'required|date_format:Y-m-d', 'type' => 'required|in:wfh,correction,leave,sick,permission', 'reason' => 'required|string|max:3000', 'clock_in' => 'nullable|date_format:Y-m-d H:i:s', 'clock_out' => 'nullable|date_format:Y-m-d H:i:s|after:clock_in']);
+        $data = $r->validate(['work_date' => 'required|date_format:Y-m-d', 'type' => 'required|in:wfh,correction,leave,sick,permission', 'reason' => 'required|string|max:3000', 'clock_in' => 'nullable|date_format:Y-m-d H:i:s', 'clock_out' => 'nullable|date_format:Y-m-d H:i:s|after:clock_in'], ['required' => 'Kolom :attribute wajib diisi.', 'date_format' => 'Format :attribute tidak valid. Gunakan pemilih tanggal dan waktu.', 'after' => 'Waktu keluar harus setelah waktu masuk.', 'in' => 'Jenis pengajuan tidak tersedia.'], ['work_date' => 'tanggal kerja', 'type' => 'jenis pengajuan', 'reason' => 'alasan', 'clock_in' => 'waktu masuk', 'clock_out' => 'waktu keluar']);
         $me = $a->employee($r->user());
         abort_unless($me !== null, 422, 'Profil karyawan belum ditetapkan.');
         abort_unless(DB::table('schedules')->where('employee_id', $me->id)->where('work_date', $data['work_date'])->exists(), 422, 'Jadwal belum tersedia.');

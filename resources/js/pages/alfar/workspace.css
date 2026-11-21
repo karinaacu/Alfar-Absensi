@@ -2082,3 +2082,11 @@ td .text-button + .text-button {
         width: 100%;
     }
 }
+
+/* Shared dialogs must stay above workspace forms and mobile navigation. */
+[data-slot='dialog-overlay'] {
+    z-index: 250;
+}
+[data-slot='dialog-content'].alfar-confirmation {
+    z-index: 251;
+}

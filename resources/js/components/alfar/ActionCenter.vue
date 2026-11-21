@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppDateTimePicker from '@/components/alfar/AppDateTimePicker.vue';
 import { ref, watch, nextTick, onBeforeUnmount } from 'vue';
 import { ClipboardCheck, Clock3, ArrowRight, RefreshCw, X } from '@lucide/vue';
 import { toast } from 'vue-sonner';
@@ -250,12 +251,17 @@ function close() {
                 aria-label="Kategori tindak lanjut"
             /><template v-if="view === 'attention'"
                 ><label
-                    >Kehadiran dari<input
+                    >Kehadiran dari<AppDateTimePicker
                         v-model="from"
-                        type="date"
+                        label="Kehadiran dari"
+                        mode="date"
                         :max="to" /></label
                 ><label
-                    >Sampai<input v-model="to" type="date" :min="from" /></label
+                    >Sampai<AppDateTimePicker
+                        v-model="to"
+                        label="Sampai"
+                        mode="date"
+                        :min="from" /></label
             ></template>
         </div>
         <p class="action-caption">

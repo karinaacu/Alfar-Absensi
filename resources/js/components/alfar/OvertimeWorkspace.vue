@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppDateTimePicker from '@/components/alfar/AppDateTimePicker.vue';
 import { ref, onBeforeUnmount } from 'vue';
 import { useForm } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
@@ -68,8 +69,8 @@ async function load() {
 function submit() {
     form.transform((data) => ({
         ...data,
-        starts_at: data.starts_at.replace('T', ' ') + ':00',
-        ends_at: data.ends_at.replace('T', ' ') + ':00',
+        starts_at: data.starts_at.replace('T', ' '),
+        ends_at: data.ends_at.replace('T', ' '),
     })).post('/overtime', {
         preserveScroll: true,
         onSuccess: () => {
@@ -206,19 +207,22 @@ onBeforeUnmount(() => {
             >
             <form class="ot-form" @submit.prevent="submit">
                 <label
-                    >Tanggal kerja<Input
+                    >Tanggal kerja<AppDateTimePicker
                         v-model="form.work_date"
-                        type="date"
+                        label="Tanggal kerja"
+                        mode="date"
                         required /></label
                 ><label
-                    >Mulai lembur<Input
+                    >Mulai lembur<AppDateTimePicker
                         v-model="form.starts_at"
-                        type="datetime-local"
+                        label="Mulai lembur"
+                        mode="datetime"
                         required /></label
                 ><label
-                    >Selesai lembur<Input
+                    >Selesai lembur<AppDateTimePicker
                         v-model="form.ends_at"
-                        type="datetime-local"
+                        label="Selesai lembur"
+                        mode="datetime"
                         required /></label
                 ><label
                     >Istirahat (menit)<Input
